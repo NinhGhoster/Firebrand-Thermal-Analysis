@@ -12,6 +12,7 @@ from typing import Optional, Tuple, List
 import csv
 import numpy as np
 from collections import OrderedDict
+from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 try:
@@ -78,22 +79,32 @@ class SKDDashboard(tk.Tk):
         dashboard.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=8)
         image_frame = ttk.Frame(main_frame)
         image_frame.pack(side=tk.RIGHT, expand=True, fill=tk.BOTH)
-        # Controls
-        self.btn_open = ttk.Button(dashboard, text="Open SEQ", command=self.on_open)
+        # Files
+        file_frame = ttk.LabelFrame(dashboard, text="Files")
+        file_frame.pack(fill=tk.X, pady=4)
+        self.btn_open = ttk.Button(file_frame, text="Open SEQ", command=self.on_open)
         self.btn_open.pack(fill=tk.X, pady=2)
-        playback = ttk.Frame(dashboard); playback.pack(fill=tk.X, pady=2)
+        self.lbl_file = ttk.Label(file_frame, text="File: (none)", wraplength=240)
+        self.lbl_file.pack(anchor=tk.W, pady=(2,2))
+        file_nav = ttk.Frame(file_frame); file_nav.pack(fill=tk.X, pady=2)
+        ttk.Button(file_nav, text="Prev File", command=self.on_prev_file).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        ttk.Button(file_nav, text="Next File", command=self.on_next_file).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        # Playback
+        playback_frame = ttk.LabelFrame(dashboard, text="Playback")
+        playback_frame.pack(fill=tk.X, pady=4)
+        playback = ttk.Frame(playback_frame); playback.pack(fill=tk.X, pady=2)
         self.btn_play = ttk.Button(playback, text="Play", command=self.on_play_pause)
         self.btn_play.pack(side=tk.LEFT, padx=1, fill=tk.X, expand=True)
         self.btn_stop = ttk.Button(playback, text="Stop", command=self.on_stop)
         self.btn_stop.pack(side=tk.LEFT, padx=1, fill=tk.X, expand=True)
-        nav_frame = ttk.Frame(dashboard); nav_frame.pack(fill=tk.X)
+        nav_frame = ttk.Frame(playback_frame); nav_frame.pack(fill=tk.X)
         self.btn_prev = ttk.Button(nav_frame, text="Prev", command=self.on_prev, width=6)
         self.btn_prev.pack(side=tk.LEFT, padx=1, fill=tk.X, expand=True)
         self.btn_next = ttk.Button(nav_frame, text="Next", command=self.on_next, width=6)
         self.btn_next.pack(side=tk.LEFT, padx=1, fill=tk.X, expand=True)
-        ttk.Label(dashboard, text=" ").pack()
+        # Configuration
         cfg = ttk.LabelFrame(dashboard, text="Configuration for Exporting")
-        cfg.pack(fill=tk.BOTH, expand=False, pady=4)
+        cfg.pack(fill=tk.X, pady=4)
         cfg_top = ttk.Frame(cfg); cfg_top.pack(fill=tk.X, pady=2)
         ttk.Label(cfg_top, text="Threshold (°C):").pack(side=tk.LEFT)
         self.var_thresh = tk.DoubleVar(value=self.temp_threshold)
@@ -114,12 +125,12 @@ class SKDDashboard(tk.Tk):
         ttk.Entry(rf_row, width=8, textvariable=self.var_export_end).pack(side=tk.LEFT, padx=2)
         ttk.Label(range_frame, text="Type max if you don't want to set a value").pack(anchor=tk.W, pady=(0,2))
         rf_btns = ttk.Frame(range_frame); rf_btns.pack(fill=tk.X, pady=2)
-        ttk.Button(rf_btns, text="Set Start from Current Frame", command=self.set_export_start).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-        ttk.Button(rf_btns, text="Set End from Current Frame", command=self.set_export_end).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-        roi_group = ttk.LabelFrame(cfg, text="ROI and Files")
-        roi_group.pack(fill=tk.BOTH, pady=3)
-        self.lbl_file = ttk.Label(roi_group, text="File: (none)", wraplength=220)
-        self.lbl_file.pack(anchor=tk.W, pady=(2,2))
+        self.btn_set_start = ttk.Button(rf_btns, text="Set Start from Current Frame", command=self.set_export_start)
+        self.btn_set_start.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        self.btn_set_end = ttk.Button(rf_btns, text="Set End from Current Frame", command=self.set_export_end)
+        self.btn_set_end.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        roi_group = ttk.LabelFrame(cfg, text="ROI")
+        roi_group.pack(fill=tk.X, pady=3)
         roi_fields = ttk.Frame(roi_group); roi_fields.pack(fill=tk.X)
         ttk.Label(roi_fields, text="X").pack(side=tk.LEFT); self.var_roi_x = tk.IntVar(value=0)
         self.entry_roi_x = ttk.Entry(roi_fields, width=5, textvariable=self.var_roi_x); self.entry_roi_x.pack(side=tk.LEFT)
@@ -132,17 +143,18 @@ class SKDDashboard(tk.Tk):
         btn_row = ttk.Frame(roi_group); btn_row.pack(fill=tk.X, pady=2)
         self.btn_roi_update = ttk.Button(btn_row, text="Update ROI", command=self.update_roi_from_fields); self.btn_roi_update.pack(side=tk.LEFT, padx=2, pady=1)
         self.btn_roi_clear = ttk.Button(btn_row, text="Clear ROI", command=self.clear_roi); self.btn_roi_clear.pack(side=tk.LEFT, padx=2, pady=1)
-        file_nav = ttk.Frame(roi_group); file_nav.pack(fill=tk.X, pady=2)
-        ttk.Button(file_nav, text="Prev File", command=self.on_prev_file).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-        ttk.Button(file_nav, text="Next File", command=self.on_next_file).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
         apply_row = ttk.Frame(cfg); apply_row.pack(fill=tk.X, pady=3)
         ttk.Button(apply_row, text="Apply", command=self.apply_current_settings).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
         ttk.Button(apply_row, text="Apply All", command=self.apply_current_settings_all).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-        ttk.Label(dashboard, text=" ").pack()
-        self.btn_export = ttk.Button(dashboard, text="Export Current Frame", command=self.export_frame)
-        self.btn_export.pack(fill=tk.X, pady=3)
-        self.btn_export_csv = ttk.Button(dashboard, text="Export Video to CSV", command=self.export_video_csv)
-        self.btn_export_csv.pack(fill=tk.X, pady=3)
+        # Export
+        export_frame = ttk.LabelFrame(dashboard, text="Export")
+        export_frame.pack(fill=tk.X, pady=4)
+        self.btn_export = ttk.Button(export_frame, text="Export Current Frame to JPG", command=self.export_frame)
+        self.btn_export.pack(fill=tk.X, pady=2)
+        self.btn_export_csv = ttk.Button(export_frame, text="Export Current File to CSV", command=self.export_video_csv)
+        self.btn_export_csv.pack(fill=tk.X, pady=2)
+        self.btn_export_csv_all = ttk.Button(export_frame, text="Export All Files to CSV", command=self.export_video_csv_all)
+        self.btn_export_csv_all.pack(fill=tk.X, pady=2)
         # Image/canvas
         self.canvas = tk.Canvas(image_frame, bg="#222222", highlightthickness=0)
         self.canvas.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
@@ -154,7 +166,7 @@ class SKDDashboard(tk.Tk):
         self.status = ttk.Label(self, text="Ready", anchor=tk.W)
         self.status.pack(side=tk.BOTTOM, fill=tk.X)
         footer = ttk.Frame(dashboard)
-        footer.pack(side=tk.BOTTOM, fill=tk.X, pady=(10,0))
+        footer.pack(side=tk.BOTTOM, fill=tk.X, pady=(8,0))
         ttk.Label(footer, text="Developed from FLIR SDK by H. Nguyen").pack(anchor=tk.W)
         ttk.Label(footer, text="Version 0.0.1").pack(anchor=tk.W)
         ttk.Button(footer, text="Check for Updates", command=self.on_check_updates).pack(anchor=tk.W, fill=tk.X, pady=(2,0))
@@ -182,11 +194,13 @@ class SKDDashboard(tk.Tk):
             return
         frame_num = self.current_idx + 1
         self.var_export_start.set(frame_num)
+        self._update_range_button_labels()
     def set_export_end(self):
         if self.im is None:
             return
         frame_num = self.current_idx + 1
         self.var_export_end.set(frame_num)
+        self._update_range_button_labels()
     def _update_file_label(self):
         name = os.path.basename(self.seq_path) if self.seq_path else "(none)"
         total = len(self.batch_paths)
@@ -216,6 +230,16 @@ class SKDDashboard(tk.Tk):
         if hasattr(self, "lbl_meta_emiss"):
             text = "-" if emiss is None else f"{emiss:.3f}"
             self.lbl_meta_emiss.configure(text=f"Metadata emissivity: {text}")
+    def _update_range_button_labels(self):
+        if not hasattr(self, "btn_set_start") or not hasattr(self, "btn_set_end"):
+            return
+        frame_num = self.current_idx + 1 if self.im is not None else 0
+        if frame_num > 0:
+            self.btn_set_start.configure(text=f"Set Start from {frame_num}")
+            self.btn_set_end.configure(text=f"Set End from {frame_num}")
+        else:
+            self.btn_set_start.configure(text="Set Start from Current Frame")
+            self.btn_set_end.configure(text="Set End from Current Frame")
     def _current_settings_snapshot(self) -> dict:
         self.update_roi_from_fields()
         try:
@@ -318,6 +342,7 @@ class SKDDashboard(tk.Tk):
             self._update_file_label()
             if reset_settings:
                 self.apply_current_settings_all()
+            self._update_range_button_labels()
             self.after(10, self._render_current)
         except Exception as e:
             traceback.print_exc()
@@ -652,10 +677,14 @@ class SKDDashboard(tk.Tk):
             roistr = f"ROI: {self.roi_rect if self.roi_rect else 'Full'}"
             self._base_status = f"Frame {self.current_idx+1}/{self.num_frames} | {roistr} | Thresh: {temp_thresh:.1f}{self.unit_label}"
             self.status.configure(text=self._base_status)
+            self._update_range_button_labels()
         except Exception:
             traceback.print_exc()
     def export_frame(self):
         try:
+            if not self.seq_path:
+                messagebox.showerror("Export", "Open a SEQ file first.")
+                return
             self._ensure_emissivity()
             self.im.get_frame(self.current_idx)
             frame = np.array(self.im.final, copy=False).reshape((self.height, self.width))
@@ -674,35 +703,29 @@ class SKDDashboard(tk.Tk):
                 prefix = "Detect" if d.get('new_track') else "Tracking"
                 cv2.putText(vis, f"{prefix}: {d['max_temp']:.1f}C", (x, max(0, y-3)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
             # Save
-            out_path = filedialog.asksaveasfilename(title="Export Frame", defaultextension=".png",
-                                                    filetypes=[("PNG","*.png"),("JPEG","*.jpg")])
-            if not out_path: return
-            ext = os.path.splitext(out_path)[1].lower()
-            if ext == ".jpg" or ext == ".jpeg":
-                ok = cv2.imwrite(out_path, cv2.cvtColor(vis, cv2.COLOR_BGR2RGB), [int(cv2.IMWRITE_JPEG_QUALITY),95])
-            else:
-                ok = cv2.imwrite(out_path, cv2.cvtColor(vis, cv2.COLOR_BGR2RGB))
+            base = os.path.splitext(os.path.basename(self.seq_path))[0]
+            out_dir = os.path.dirname(self.seq_path)
+            out_path = os.path.join(out_dir, f"{base}_frame_{self.current_idx+1:05d}.jpg")
+            ok = cv2.imwrite(out_path, cv2.cvtColor(vis, cv2.COLOR_BGR2RGB), [int(cv2.IMWRITE_JPEG_QUALITY),95])
             messagebox.showinfo("Export", f"Exported frame to: {out_path}" if ok else "Export failed!")
         except Exception as ex:
             traceback.print_exc()
             messagebox.showerror("Export", f"Export failed: {ex}")
     def export_video_csv(self):
-        if self.im is None:
+        if not self.seq_path:
             messagebox.showerror("Export", "Open a SEQ file first.")
             return
-        out_path = filedialog.asksaveasfilename(title="Export detections to CSV",
-                                                defaultextension=".csv",
-                                                filetypes=[("CSV","*.csv")])
-        if not out_path:
+        self._export_csv_for_paths([self.seq_path])
+    def export_video_csv_all(self):
+        paths = self.batch_paths if self.batch_paths else ([self.seq_path] if self.seq_path else [])
+        if not paths:
+            messagebox.showerror("Export", "Open a SEQ file first.")
             return
+        self._export_csv_for_paths(paths)
+    def _export_csv_for_paths(self, paths: List[str]):
         try:
             self._ensure_emissivity()
             self.update_roi_from_fields()
-            paths = self.batch_paths if self.batch_paths else ([self.seq_path] if self.seq_path else [])
-            if not paths:
-                messagebox.showerror("Export", "No SEQ file selected.")
-                return
-            rows = []
             original_width, original_height = self.width, self.height
             default_settings = self._current_settings_snapshot()
             for p_idx, seq_path in enumerate(paths):
@@ -746,6 +769,7 @@ class SKDDashboard(tk.Tk):
                     start_use = end_f
                 tracked = OrderedDict()
                 next_id = 1
+                rows = []
                 for idx in range(start_use - 1, end_f):
                     im.get_frame(idx)
                     frame = np.array(im.final, copy=False).reshape((self.height, self.width))
@@ -761,32 +785,31 @@ class SKDDashboard(tk.Tk):
                             det.get('avg_temp', det['max_temp']),
                             det.get('median_temp', det['max_temp']),
                             det.get('area', 0),
-                            x, y, w, h,
-                            os.path.basename(seq_path)
+                            x, y, w, h
                         ))
                     self.status.configure(text=f"Exporting CSV [{p_idx+1}/{len(paths)}]: {os.path.basename(seq_path)} frame {idx+1}/{num_frames} (range {start_use}-{end_f})")
                     self.update_idletasks()
+                out_path = str(Path(seq_path).with_suffix(".csv"))
+                with open(out_path, "w", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        "frame",
+                        "firebrand_id",
+                        "max_temperature",
+                        "min_temperature",
+                        "avg_temperature",
+                        "median_temperature",
+                        "area_pixels",
+                        "bbox_x",
+                        "bbox_y",
+                        "bbox_w",
+                        "bbox_h",
+                    ])
+                    writer.writerows(rows)
+                self.status.configure(text=f"CSV saved: {out_path}")
             self.width = original_width
             self.height = original_height
-            with open(out_path, "w", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow([
-                    "frame",
-                    "firebrand_id",
-                    "max_temperature",
-                    "min_temperature",
-                    "avg_temperature",
-                    "median_temperature",
-                    "area_pixels",
-                    "bbox_x",
-                    "bbox_y",
-                    "bbox_w",
-                    "bbox_h",
-                    "source_file",
-                ])
-                writer.writerows(rows)
-            self.status.configure(text=f"CSV saved: {out_path}")
-            messagebox.showinfo("Export", f"Saved detections to {out_path}")
+            messagebox.showinfo("Export", "CSV export complete.")
         except Exception as ex:
             traceback.print_exc()
             messagebox.showerror("Export", f"Export failed: {ex}")
