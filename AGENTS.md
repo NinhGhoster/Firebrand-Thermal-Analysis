@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Project Overview
-- Thermal firebrand detection + tracking dashboard for FLIR SDK SEQ files.
+- Firebrand Thermal Analysis dashboard for FLIR SDK SEQ files.
 - Primary entry point: `SDK_dashboard.py`.
 - Packaged outputs live in `dist/` (large) and build artifacts in `build/`.
 - Support modules: `SDK.py` and `tutorial/` examples.
