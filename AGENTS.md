@@ -43,6 +43,7 @@
 - Export end accepts `max` and defaults to full length per file.
 - Emissivity shows metadata for the active SEQ; default input is 0.9.
 - CSV export saves next to the SEQ with the same base name.
+- Status text is prefixed with `Status:` for quick scanning.
 
 ## Code Style Guidelines
 - **Imports**: Group stdlib, third-party, local; try/except for optional imports (PIL, cv2, fnv).

@@ -38,29 +38,29 @@ conda env update -f environment.yml --prune
 
 ## Using the Dashboard
 ### Open SEQ files
-- **Open SEQ Files...** supports one file, multiple files, or a folder of SEQ files.
+- **Open SEQ files...** supports one file, multiple files, or a folder of SEQ files.
 - When a folder is selected, all `.seq` files are loaded in sorted order.
-- Use **Previous File** / **Next File** to switch the current view.
+- Use **Previous file** / **Next file** to switch the current view.
 
 ### Playback
-- **Play/Pause**, **Prev**, **Next**, and the frame slider control playback.
+- **Play/Pause**, **Step back**, **Step forward**, and the frame slider control playback.
 - Keyboard: `Space` toggles play/pause, `Left`/`Right` or `,`/`.` steps frames.
 
-### Export Settings
+### Export settings
 - **Detection Threshold**: temperature threshold (C) for firebrand detection.
 - **Emissivity**: the metadata value is shown for the current file; default input is 0.9.
 - **Export Range**: start/end are 1-based frame numbers. End accepts `max`.
-- **Set Start/End = Frame N** uses the current frame number.
-- **Apply to Current** saves settings for the current SEQ; **Apply to All** applies to all loaded files.
+- **Set start/end = frame N** uses the current frame number.
+- **Apply to `<file>`** saves settings for the current SEQ; **Apply all** applies to all loaded files.
 
 ### Region of Interest (ROI)
 - Drag on the canvas to define a ROI or edit ROI fields numerically.
-- ROI updates apply to the current file or all files via Apply to Current / Apply to All.
+- ROI updates apply to the current file or all files via Apply to `<file>` / Apply all.
 
-### Export Actions
-- **Save Frame Image (JPG)** saves `basename_frame_00001.jpg` next to the SEQ.
-- **Export CSV (Current)** saves `basename.csv` next to the SEQ.
-- **Export CSV (All Files)** exports all loaded SEQs with shared settings.
+### Export actions
+- **Save frame image (JPG)** saves `basename_frame_00001.jpg` next to the SEQ.
+- **Export CSV (current)** saves `basename.csv` next to the SEQ.
+- **Export CSV (all files)** exports all loaded SEQs with shared settings.
 
 ## CSV Schema
 Each row is one detected firebrand in a frame.

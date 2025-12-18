@@ -64,7 +64,7 @@ class SKDDashboard(tk.Tk):
         self._resize_job = None
         self._canvas_size: Tuple[int, int] = (0, 0)
         self._last_frame = None
-        self._base_status = "Ready"
+        self._base_status = "Status: Ready"
         self.var_export_start = tk.IntVar(value=1)
         self.var_export_end = tk.StringVar(value="max")
         self.batch_paths: List[str] = []
@@ -75,12 +75,6 @@ class SKDDashboard(tk.Tk):
         self._reset_tracking()
     def _build_ui(self):
         style = ttk.Style(self)
-        try:
-            style.theme_use("clam")
-        except Exception:
-            pass
-        style.configure("Title.TLabel", font=("Helvetica", 16, "bold"))
-        style.configure("Subtitle.TLabel", font=("Helvetica", 10))
         style.configure("Muted.TLabel", foreground="#666666")
 
         main_frame = ttk.Frame(self)
@@ -93,22 +87,17 @@ class SKDDashboard(tk.Tk):
         content = ttk.Frame(main_frame)
         content.pack(side=tk.RIGHT, expand=True, fill=tk.BOTH, padx=(6, 10), pady=10)
 
-        header = ttk.Frame(sidebar)
-        header.pack(fill=tk.X, pady=(0, 8))
-        ttk.Label(header, text="Firebrand Thermal Analysis", style="Title.TLabel").pack(anchor=tk.W)
-        ttk.Label(header, text="FLIR Science File SDK Dashboard", style="Subtitle.TLabel").pack(anchor=tk.W)
-
         # Data source
-        file_frame = ttk.LabelFrame(sidebar, text="Data Source")
+        file_frame = ttk.LabelFrame(sidebar, text="Data source")
         file_frame.pack(fill=tk.X, pady=6)
-        self.btn_open = ttk.Button(file_frame, text="Open SEQ Files...", command=self.on_open)
+        self.btn_open = ttk.Button(file_frame, text="Open SEQ files...", command=self.on_open)
         self.btn_open.pack(fill=tk.X, pady=2)
         self.lbl_file = ttk.Label(file_frame, text="Current file: (none)", wraplength=280)
         self.lbl_file.pack(anchor=tk.W, pady=(4, 2))
         file_nav = ttk.Frame(file_frame)
         file_nav.pack(fill=tk.X, pady=2)
-        ttk.Button(file_nav, text="Previous File", command=self.on_prev_file).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-        ttk.Button(file_nav, text="Next File", command=self.on_next_file).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        ttk.Button(file_nav, text="Previous file", command=self.on_prev_file).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        ttk.Button(file_nav, text="Next file", command=self.on_next_file).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
 
         # Playback
         playback_frame = ttk.LabelFrame(sidebar, text="Playback")
@@ -121,18 +110,18 @@ class SKDDashboard(tk.Tk):
         self.btn_stop.pack(side=tk.LEFT, padx=1, fill=tk.X, expand=True)
         nav_frame = ttk.Frame(playback_frame)
         nav_frame.pack(fill=tk.X)
-        self.btn_prev = ttk.Button(nav_frame, text="Step Back", command=self.on_prev)
+        self.btn_prev = ttk.Button(nav_frame, text="Step back", command=self.on_prev)
         self.btn_prev.pack(side=tk.LEFT, padx=1, fill=tk.X, expand=True)
-        self.btn_next = ttk.Button(nav_frame, text="Step Forward", command=self.on_next)
+        self.btn_next = ttk.Button(nav_frame, text="Step forward", command=self.on_next)
         self.btn_next.pack(side=tk.LEFT, padx=1, fill=tk.X, expand=True)
 
         # Export settings
-        cfg = ttk.LabelFrame(sidebar, text="Export Settings")
+        cfg = ttk.LabelFrame(sidebar, text="Export settings")
         cfg.pack(fill=tk.X, pady=6)
         cfg_grid = ttk.Frame(cfg)
         cfg_grid.pack(fill=tk.X, pady=2)
         cfg_grid.columnconfigure(1, weight=1)
-        ttk.Label(cfg_grid, text="Detection Threshold (C):").grid(row=0, column=0, sticky=tk.W, padx=4, pady=2)
+        ttk.Label(cfg_grid, text="Detection threshold (C):").grid(row=0, column=0, sticky=tk.W, padx=4, pady=2)
         self.var_thresh = tk.DoubleVar(value=self.temp_threshold)
         ttk.Entry(cfg_grid, width=10, textvariable=self.var_thresh).grid(row=0, column=1, sticky=tk.W, padx=4, pady=2)
         ttk.Label(cfg_grid, text="Metadata emissivity:").grid(row=1, column=0, sticky=tk.W, padx=4, pady=2)
@@ -143,7 +132,7 @@ class SKDDashboard(tk.Tk):
         self.entry_emissivity = ttk.Entry(cfg_grid, width=10, textvariable=self.var_emissivity)
         self.entry_emissivity.grid(row=2, column=1, sticky=tk.W, padx=4, pady=2)
 
-        range_frame = ttk.LabelFrame(cfg, text="Export Range (Frames)")
+        range_frame = ttk.LabelFrame(cfg, text="Export range (frames)")
         range_frame.pack(fill=tk.X, padx=6, pady=6)
         rf_row = ttk.Frame(range_frame)
         rf_row.pack(fill=tk.X, pady=2)
@@ -151,15 +140,15 @@ class SKDDashboard(tk.Tk):
         ttk.Entry(rf_row, width=7, textvariable=self.var_export_start).pack(side=tk.LEFT, padx=(2, 8))
         ttk.Label(rf_row, text="End:").pack(side=tk.LEFT)
         ttk.Entry(rf_row, width=8, textvariable=self.var_export_end).pack(side=tk.LEFT, padx=(2, 4))
-        ttk.Label(range_frame, text="Type max to use full length.", style="Muted.TLabel").pack(anchor=tk.W, pady=(0, 2))
+        ttk.Label(range_frame, text='Type "max" in End to use full length.', style="Muted.TLabel").pack(anchor=tk.W, pady=(0, 2))
         rf_btns = ttk.Frame(range_frame)
         rf_btns.pack(fill=tk.X, pady=2)
-        self.btn_set_start = ttk.Button(rf_btns, text="Set Start = Current Frame", command=self.set_export_start)
+        self.btn_set_start = ttk.Button(rf_btns, text="Set start = current frame", command=self.set_export_start)
         self.btn_set_start.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-        self.btn_set_end = ttk.Button(rf_btns, text="Set End = Current Frame", command=self.set_export_end)
+        self.btn_set_end = ttk.Button(rf_btns, text="Set end = current frame", command=self.set_export_end)
         self.btn_set_end.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
 
-        roi_group = ttk.LabelFrame(cfg, text="Region of Interest")
+        roi_group = ttk.LabelFrame(cfg, text="Region of interest")
         roi_group.pack(fill=tk.X, padx=6, pady=6)
         roi_fields = ttk.Frame(roi_group)
         roi_fields.pack(fill=tk.X)
@@ -188,38 +177,40 @@ class SKDDashboard(tk.Tk):
 
         apply_row = ttk.Frame(cfg)
         apply_row.pack(fill=tk.X, pady=(0, 4))
-        ttk.Button(apply_row, text="Apply to Current", command=self.apply_current_settings).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-        ttk.Button(apply_row, text="Apply to All", command=self.apply_current_settings_all).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        self.btn_apply_current = ttk.Button(apply_row, text="Apply to current file", command=self.apply_current_settings)
+        self.btn_apply_current.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        self.btn_apply_all = ttk.Button(apply_row, text="Apply all", command=self.apply_current_settings_all)
+        self.btn_apply_all.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        self._update_apply_labels()
 
         # Export actions
-        export_frame = ttk.LabelFrame(sidebar, text="Export Actions")
+        export_frame = ttk.LabelFrame(sidebar, text="Export actions")
         export_frame.pack(fill=tk.X, pady=6)
-        self.btn_export_csv = ttk.Button(export_frame, text="Export CSV (Current)", command=self.export_video_csv)
+        self.btn_export_csv = ttk.Button(export_frame, text="Export CSV (current)", command=self.export_video_csv)
         self.btn_export_csv.pack(fill=tk.X, pady=2)
-        self.btn_export_csv_all = ttk.Button(export_frame, text="Export CSV (All Files)", command=self.export_video_csv_all)
+        self.btn_export_csv_all = ttk.Button(export_frame, text="Export CSV (all files)", command=self.export_video_csv_all)
         self.btn_export_csv_all.pack(fill=tk.X, pady=2)
-        self.btn_export = ttk.Button(export_frame, text="Save Frame Image (JPG)", command=self.export_frame)
+        self.btn_export = ttk.Button(export_frame, text="Save frame image (JPG)", command=self.export_frame)
         self.btn_export.pack(fill=tk.X, pady=2)
 
         footer = ttk.Frame(sidebar)
         footer.pack(side=tk.BOTTOM, fill=tk.X, pady=(8, 0))
-        ttk.Label(footer, text="Developed from FLIR SDK by H. Nguyen", style="Muted.TLabel").pack(anchor=tk.W)
-        ttk.Label(footer, text="Version 0.0.1", style="Muted.TLabel").pack(anchor=tk.W)
-        ttk.Button(footer, text="Check for Updates", command=self.on_check_updates).pack(anchor=tk.W, fill=tk.X, pady=(2, 0))
+        ttk.Label(footer, text="Developed from FLIR SDK by H. Nguyen (v0.0.1)", style="Muted.TLabel").pack(anchor=tk.W)
+        ttk.Button(footer, text="Check for updates", command=self.on_check_updates).pack(anchor=tk.W, fill=tk.X, pady=(2, 0))
 
         # Image/canvas
         canvas_frame = ttk.Frame(content)
         canvas_frame.pack(fill=tk.BOTH, expand=True)
-        self.canvas = tk.Canvas(canvas_frame, bg="#1b1b1b", highlightthickness=0)
+        self.canvas = tk.Canvas(canvas_frame, bg="#222222", highlightthickness=0)
         self.canvas.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
-        slider_bar = ttk.Frame(content)
-        slider_bar.pack(fill=tk.X, pady=(6, 0))
+        # Status bar (kept at very bottom)
+        self.status = ttk.Label(self, text="Status: Ready", anchor=tk.W, relief=tk.SUNKEN)
+        self.status.pack(side=tk.BOTTOM, fill=tk.X)
+
+        slider_bar = ttk.Frame(self)
+        slider_bar.pack(side=tk.BOTTOM, fill=tk.X)
         self.slider = ttk.Scale(slider_bar, from_=0, to=0, orient=tk.HORIZONTAL, command=self.on_slider)
         self.slider.pack(fill=tk.X, padx=6, pady=4)
-
-        # Status bar (kept at very bottom)
-        self.status = ttk.Label(self, text="Ready", anchor=tk.W, relief=tk.SUNKEN)
-        self.status.pack(side=tk.BOTTOM, fill=tk.X)
     def _bind_events(self):
         # Global bindings so space toggles play/pause even when focus is on inputs
         self.bind_all("<Key-space>", lambda e: self.on_play_pause())
@@ -234,7 +225,7 @@ class SKDDashboard(tk.Tk):
         self.canvas.bind("<Motion>", self.on_mouse_move)
         self.canvas.bind("<Configure>", self.on_canvas_resize)
     def on_check_updates(self):
-        messagebox.showinfo("Updates", "Version 0.0.1\nNo update source configured.")
+        messagebox.showinfo("Updates", "v0.0.1\nNo update source configured.")
     def _reset_tracking(self):
         self.tracked_objects = OrderedDict()
         self.next_track_id = 1
@@ -257,6 +248,13 @@ class SKDDashboard(tk.Tk):
         idx_str = f" ({self.batch_index+1}/{total})" if total else ""
         if hasattr(self, "lbl_file"):
             self.lbl_file.configure(text=f"Current file: {name}{idx_str}")
+        self._update_apply_labels()
+    def _update_apply_labels(self):
+        if not hasattr(self, "btn_apply_current") or not hasattr(self, "btn_apply_all"):
+            return
+        file_name = os.path.basename(self.seq_path) if self.seq_path else "current file"
+        self.btn_apply_current.configure(text=f"Apply to {file_name}")
+        self.btn_apply_all.configure(text="Apply all")
     def _clamp_roi_to_frame(self):
         if self.width <= 0 or self.height <= 0:
             return
@@ -285,11 +283,11 @@ class SKDDashboard(tk.Tk):
             return
         frame_num = self.current_idx + 1 if self.im is not None else 0
         if frame_num > 0:
-            self.btn_set_start.configure(text=f"Set Start = Frame {frame_num}")
-            self.btn_set_end.configure(text=f"Set End = Frame {frame_num}")
+            self.btn_set_start.configure(text=f"Set start = frame {frame_num}")
+            self.btn_set_end.configure(text=f"Set end = frame {frame_num}")
         else:
-            self.btn_set_start.configure(text="Set Start = Current Frame")
-            self.btn_set_end.configure(text="Set End = Current Frame")
+            self.btn_set_start.configure(text="Set start = current frame")
+            self.btn_set_end.configure(text="Set end = current frame")
     def _current_settings_snapshot(self) -> dict:
         self.update_roi_from_fields()
         try:
@@ -370,7 +368,7 @@ class SKDDashboard(tk.Tk):
             self.slider.configure(from_=0, to=max(0, self.num_frames-1))
             self._reset_tracking()
             self._applied_emissivity = None
-            self.status.configure(text=f"Opened: {os.path.basename(path)} | {self.width}x{self.height} | {self.num_frames} frames")
+            self.status.configure(text=f"Status: Opened {os.path.basename(path)} | {self.width}x{self.height} | {self.num_frames} frames")
             meta_emiss = None
             try:
                 meta_emiss = float(im.object_parameters.emissivity)
@@ -725,7 +723,7 @@ class SKDDashboard(tk.Tk):
             finally:
                 self._in_slider_update = False
             roistr = f"ROI: {self.roi_rect if self.roi_rect else 'Full'}"
-            self._base_status = f"Frame {self.current_idx+1}/{self.num_frames} | {roistr} | Thresh: {temp_thresh:.1f}{self.unit_label}"
+            self._base_status = f"Status: Frame {self.current_idx+1}/{self.num_frames} | {roistr} | Thresh: {temp_thresh:.1f}{self.unit_label}"
             self.status.configure(text=self._base_status)
             self._update_range_button_labels()
         except Exception:
@@ -837,7 +835,7 @@ class SKDDashboard(tk.Tk):
                             det.get('area', 0),
                             x, y, w, h
                         ))
-                    self.status.configure(text=f"Exporting CSV [{p_idx+1}/{len(paths)}]: {os.path.basename(seq_path)} frame {idx+1}/{num_frames} (range {start_use}-{end_f})")
+                    self.status.configure(text=f"Status: Exporting CSV [{p_idx+1}/{len(paths)}]: {os.path.basename(seq_path)} frame {idx+1}/{num_frames} (range {start_use}-{end_f})")
                     self.update_idletasks()
                 out_path = str(Path(seq_path).with_suffix(".csv"))
                 with open(out_path, "w", newline="") as f:
@@ -856,7 +854,7 @@ class SKDDashboard(tk.Tk):
                         "bbox_h",
                     ])
                     writer.writerows(rows)
-                self.status.configure(text=f"CSV saved: {out_path}")
+                self.status.configure(text=f"Status: CSV saved: {out_path}")
             self.width = original_width
             self.height = original_height
             messagebox.showinfo("Export", "CSV export complete.")
