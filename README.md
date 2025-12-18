@@ -38,12 +38,12 @@ conda env update -f environment.yml --prune
 
 ## Using the Dashboard
 ### Open SEQ files
-- **Open SEQ files...** supports one file, multiple files, or a folder of SEQ files.
+- **Open SEQ file...** supports one file, multiple files, or a folder of SEQ files.
 - When a folder is selected, all `.seq` files are loaded in sorted order.
-- Use **Previous file** / **Next file** to switch the current view.
+- Use **<< / >>** to switch the current view.
 
 ### Playback
-- **Play/Pause**, **Step back**, **Step forward**, and the frame slider control playback.
+- **|<** rewinds to frame 1, **>** toggles play/pause, **< / >>** step frames, and the frame slider scrubs.
 - Keyboard: `Space` toggles play/pause, `Left`/`Right` or `,`/`.` steps frames.
 
 ### Export settings
@@ -62,6 +62,34 @@ conda env update -f environment.yml --prune
 - **Save frame image (JPG)** saves `basename_frame_00001.jpg` next to the SEQ.
 - **Export CSV (current)** saves `basename.csv` next to the SEQ.
 - **Export CSV (all files)** exports all loaded SEQs with shared settings.
+
+## How it works
+1) Load SEQ  
+   - First file sets the batch; `<< / >>` moves through loaded files.  
+   - Metadata emissivity is read and shown; override is optional.  
+   - Unit defaults to temperature; falls back to counts if unavailable.
+
+2) ROI  
+   - Manual tab: numeric ROI fields and canvas drag.  
+   - Auto tab: one-click auto ROI from the first frame. It finds the bright fuel bed in the lower half (mean > global_mean + 0.5*std) and sets ROI from the top of the image down to just above the fuel bed (minus a user margin). If detection fails, it falls back to the top 40% band. Margin (px) is adjustable.
+
+3) Detection  
+   - Temperature threshold (C) applied to ROI; binary mask -> connected components (8-connectivity).  
+   - Filters by area (`MIN_OBJECT_AREA_PIXELS` to `MAX_OBJECT_AREA_PIXELS`).  
+   - Per detection stats: max/min/avg/median temperature and area + bbox.
+
+4) Tracking  
+   - Nearest-centroid matching with distance cap (`CENTROID_TRACKING_MAX_DIST`) and short memory (`TRACK_MEMORY_FRAMES`).  
+   - Track IDs reset per export range; IDs increment as new objects appear.
+
+5) Export  
+   - CSV: 1-based frame numbers; start/end range; `max` uses full length. Saves `basename.csv` next to the SEQ.  
+   - JPG: saves `basename_frame_00001.jpg` with ROI/detections overlay next to the SEQ.  
+   - Status bar always prefixes `Status:` and updates during export.
+
+6) Controls & shortcuts  
+   - |< rewind, > play/pause, < / >> step, space/arrow/comma/period keys for stepping, slider for scrubbing.  
+   - Apply to `<file>` saves settings per file; Apply all propagates to all loaded files.
 
 ## CSV Schema
 Each row is one detected firebrand in a frame.
