@@ -30,6 +30,23 @@ python SDK_dashboard.py
 3. Use **Apply** for the current file or **Apply All** for all loaded files.
 4. Export current frame to JPG or export CSV for the current file/all files.
 
+## Build Executables
+Builds must be done on the target OS with FLIR SDK installed.
+
+### macOS
+```bash
+pip install pyinstaller
+./build/build_macos.sh
+```
+Optional: set `FLIR_SDK_LIB_DIR`/`FLIR_SDK_BIN_DIR` to bundle SDK dylibs.
+
+### Windows
+```powershell
+pip install pyinstaller
+.\build\build_windows.ps1
+```
+Optional: set `FLIR_SDK_LIB_DIR`/`FLIR_SDK_BIN_DIR` to bundle SDK DLLs.
+
 ## Export Notes
 - Start/end are 1-based frame numbers.
 - End accepts `max` to use each file’s full length.
