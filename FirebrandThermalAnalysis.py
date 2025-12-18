@@ -77,6 +77,12 @@ class SKDDashboard(tk.Tk):
         style = ttk.Style(self)
         style.configure("Muted.TLabel", foreground="#666666")
         style.configure("Status.TLabel", padding=(6, 2))
+        style.configure("ROI.TNotebook", borderwidth=0)
+        style.configure("ROI.TNotebook.Tab", padding=(10, 2))
+        try:
+            style.layout("ROI.TNotebook", [("Notebook.client", {"sticky": "nswe"})])
+        except Exception:
+            pass
 
         main_frame = ttk.Frame(self)
         main_frame.pack(fill=tk.BOTH, expand=True)
@@ -88,8 +94,64 @@ class SKDDashboard(tk.Tk):
         content = ttk.Frame(main_frame)
         content.pack(side=tk.RIGHT, expand=True, fill=tk.BOTH, padx=(6, 10), pady=10)
 
+        sidebar_bg = style.lookup("TFrame", "background") or self.cget("bg")
+        self.sidebar_canvas = tk.Canvas(sidebar, highlightthickness=0, bd=0, background=sidebar_bg)
+        self.sidebar_scroll = ttk.Scrollbar(sidebar, orient=tk.VERTICAL, command=self.sidebar_canvas.yview)
+        self.sidebar_canvas.configure(yscrollcommand=self.sidebar_scroll.set)
+        self.sidebar_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.sidebar_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.sidebar_inner = ttk.Frame(self.sidebar_canvas)
+        self._sidebar_window_id = self.sidebar_canvas.create_window(
+            (0, 0), window=self.sidebar_inner, anchor="nw"
+        )
+
+        def _on_sidebar_inner_configure(_event):
+            self.sidebar_canvas.configure(scrollregion=self.sidebar_canvas.bbox("all"))
+
+        def _on_sidebar_canvas_configure(event):
+            self.sidebar_canvas.itemconfigure(self._sidebar_window_id, width=event.width)
+
+        self.sidebar_inner.bind("<Configure>", _on_sidebar_inner_configure)
+        self.sidebar_canvas.bind("<Configure>", _on_sidebar_canvas_configure)
+
+        def _is_descendant(widget: Optional[tk.Misc], ancestor: tk.Misc) -> bool:
+            while widget is not None:
+                if widget == ancestor:
+                    return True
+                if widget == self:
+                    return False
+                widget = getattr(widget, "master", None)
+            return False
+
+        def _should_scroll_sidebar(event) -> bool:
+            widget = self.winfo_containing(event.x_root, event.y_root)
+            return _is_descendant(widget, self.sidebar_canvas)
+
+        def _on_mousewheel(event):
+            if not _should_scroll_sidebar(event):
+                return
+            if sys.platform == "darwin":
+                delta = event.delta
+            else:
+                delta = int(event.delta / 120)
+            if delta:
+                self.sidebar_canvas.yview_scroll(-delta, "units")
+
+        def _on_mousewheel_linux(event):
+            if not _should_scroll_sidebar(event):
+                return
+            if event.num == 4:
+                self.sidebar_canvas.yview_scroll(-1, "units")
+            elif event.num == 5:
+                self.sidebar_canvas.yview_scroll(1, "units")
+
+        self.bind_all("<MouseWheel>", _on_mousewheel)
+        self.bind_all("<Button-4>", _on_mousewheel_linux)
+        self.bind_all("<Button-5>", _on_mousewheel_linux)
+
         # Data source
-        self.file_frame = ttk.LabelFrame(sidebar, text="Data source (none)")
+        self.file_frame = ttk.LabelFrame(self.sidebar_inner, text="Data source (none)")
         self.file_frame.pack(fill=tk.X, pady=6)
         file_row = ttk.Frame(self.file_frame)
         file_row.pack(fill=tk.X, pady=2)
@@ -99,11 +161,11 @@ class SKDDashboard(tk.Tk):
         ttk.Button(file_row, text=">>", command=self.on_next_file).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
 
         # Playback
-        playback_frame = ttk.LabelFrame(sidebar, text="Playback")
+        playback_frame = ttk.LabelFrame(self.sidebar_inner, text="Playback")
         playback_frame.pack(fill=tk.X, pady=6)
         playback = ttk.Frame(playback_frame)
         playback.pack(fill=tk.X, pady=2)
-        self.btn_play = ttk.Button(playback, text="Play/Pause", command=self.on_play_pause)
+        self.btn_play = ttk.Button(playback, text="Play", command=self.on_play_pause)
         self.btn_play.pack(side=tk.LEFT, padx=1, fill=tk.X, expand=True)
         self.btn_prev = ttk.Button(playback, text="<", command=self.on_prev)
         self.btn_prev.pack(side=tk.LEFT, padx=1, fill=tk.X, expand=True)
@@ -111,7 +173,7 @@ class SKDDashboard(tk.Tk):
         self.btn_next.pack(side=tk.LEFT, padx=1, fill=tk.X, expand=True)
 
         # Export settings
-        cfg = ttk.LabelFrame(sidebar, text="Export settings")
+        cfg = ttk.LabelFrame(self.sidebar_inner, text="Export settings")
         cfg.pack(fill=tk.X, pady=6)
         cfg_grid = ttk.Frame(cfg)
         cfg_grid.pack(fill=tk.X, pady=2)
@@ -150,7 +212,7 @@ class SKDDashboard(tk.Tk):
         roi_group = ttk.LabelFrame(cfg, text="Region of interest")
         roi_group.pack(fill=tk.X, padx=6, pady=6)
 
-        roi_tabs = ttk.Notebook(roi_group)
+        roi_tabs = ttk.Notebook(roi_group, style="ROI.TNotebook")
         roi_tabs.pack(fill=tk.X, expand=True)
 
         # Manual ROI tab
@@ -203,13 +265,13 @@ class SKDDashboard(tk.Tk):
         self._update_apply_labels()
 
         # Export actions
-        export_frame = ttk.LabelFrame(sidebar, text="Export")
+        export_frame = ttk.LabelFrame(self.sidebar_inner, text="Export")
         export_frame.pack(fill=tk.X, pady=6)
         self.btn_export_menu = ttk.Button(export_frame, text="Export...", command=self.show_export_menu)
         self.btn_export_menu.pack(fill=tk.X, pady=2)
 
-        footer = ttk.Frame(sidebar)
-        footer.pack(side=tk.BOTTOM, fill=tk.X, pady=(8, 0))
+        footer = ttk.Frame(self.sidebar_inner)
+        footer.pack(fill=tk.X, pady=(8, 0))
         ttk.Label(footer, text="Developed from FLIR SDK by H. Nguyen (v0.0.1)", style="Muted.TLabel").pack(anchor=tk.W)
         ttk.Button(footer, text="Check for updates", command=self.on_check_updates).pack(anchor=tk.W, fill=tk.X, pady=(2, 0))
 
