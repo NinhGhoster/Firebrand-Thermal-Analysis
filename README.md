@@ -50,7 +50,7 @@ conda env update -f environment.yml --prune
 - **Detection Threshold**: temperature threshold (C) for firebrand detection.
 - **Emissivity**: the metadata value is shown for the current file; default input is 0.9.
 - **Export Range**: start/end are 1-based frame numbers. End accepts `max`.
-- **Set start/end = frame N** uses the current frame number.
+- **Start = N / End = N** uses the current frame number (shows Set start/end when no file is loaded).
 - **Apply to `<file>`** saves settings for the current SEQ; **Apply all** applies to all loaded files.
 
 ### Region of Interest (ROI)

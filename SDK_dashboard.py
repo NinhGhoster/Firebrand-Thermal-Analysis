@@ -64,7 +64,7 @@ class SKDDashboard(tk.Tk):
         self._resize_job = None
         self._canvas_size: Tuple[int, int] = (0, 0)
         self._last_frame = None
-        self._base_status = "Status: Ready"
+        self._base_status = "Status: ready"
         self.var_export_start = tk.IntVar(value=1)
         self.var_export_end = tk.StringVar(value="max")
         self.batch_paths: List[str] = []
@@ -76,6 +76,7 @@ class SKDDashboard(tk.Tk):
     def _build_ui(self):
         style = ttk.Style(self)
         style.configure("Muted.TLabel", foreground="#666666")
+        style.configure("Status.TLabel", padding=(6, 2))
 
         main_frame = ttk.Frame(self)
         main_frame.pack(fill=tk.BOTH, expand=True)
@@ -138,14 +139,13 @@ class SKDDashboard(tk.Tk):
         rf_row.pack(fill=tk.X, pady=2)
         ttk.Label(rf_row, text="Start:").pack(side=tk.LEFT)
         ttk.Entry(rf_row, width=7, textvariable=self.var_export_start).pack(side=tk.LEFT, padx=(2, 8))
-        ttk.Label(rf_row, text="End:").pack(side=tk.LEFT)
+        ttk.Label(rf_row, text='End (type "max" for full length):').pack(side=tk.LEFT)
         ttk.Entry(rf_row, width=8, textvariable=self.var_export_end).pack(side=tk.LEFT, padx=(2, 4))
-        ttk.Label(range_frame, text='Type "max" in End to use full length.', style="Muted.TLabel").pack(anchor=tk.W, pady=(0, 2))
         rf_btns = ttk.Frame(range_frame)
         rf_btns.pack(fill=tk.X, pady=2)
-        self.btn_set_start = ttk.Button(rf_btns, text="Set start = current frame", command=self.set_export_start)
+        self.btn_set_start = ttk.Button(rf_btns, text="Set start", command=self.set_export_start)
         self.btn_set_start.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-        self.btn_set_end = ttk.Button(rf_btns, text="Set end = current frame", command=self.set_export_end)
+        self.btn_set_end = ttk.Button(rf_btns, text="Set end", command=self.set_export_end)
         self.btn_set_end.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
 
         roi_group = ttk.LabelFrame(cfg, text="Region of interest")
@@ -204,13 +204,13 @@ class SKDDashboard(tk.Tk):
         self.canvas = tk.Canvas(canvas_frame, bg="#222222", highlightthickness=0)
         self.canvas.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
         # Status bar (kept at very bottom)
-        self.status = ttk.Label(self, text="Status: Ready", anchor=tk.W, relief=tk.SUNKEN)
+        self.status = ttk.Label(self, text="Status: ready", anchor=tk.W, style="Status.TLabel")
         self.status.pack(side=tk.BOTTOM, fill=tk.X)
 
         slider_bar = ttk.Frame(self)
         slider_bar.pack(side=tk.BOTTOM, fill=tk.X)
         self.slider = ttk.Scale(slider_bar, from_=0, to=0, orient=tk.HORIZONTAL, command=self.on_slider)
-        self.slider.pack(fill=tk.X, padx=6, pady=4)
+        self.slider.pack(fill=tk.X, padx=2, pady=4)
     def _bind_events(self):
         # Global bindings so space toggles play/pause even when focus is on inputs
         self.bind_all("<Key-space>", lambda e: self.on_play_pause())
@@ -283,11 +283,11 @@ class SKDDashboard(tk.Tk):
             return
         frame_num = self.current_idx + 1 if self.im is not None else 0
         if frame_num > 0:
-            self.btn_set_start.configure(text=f"Set start = frame {frame_num}")
-            self.btn_set_end.configure(text=f"Set end = frame {frame_num}")
+            self.btn_set_start.configure(text=f"Start = {frame_num}")
+            self.btn_set_end.configure(text=f"End = {frame_num}")
         else:
-            self.btn_set_start.configure(text="Set start = current frame")
-            self.btn_set_end.configure(text="Set end = current frame")
+            self.btn_set_start.configure(text="Set start")
+            self.btn_set_end.configure(text="Set end")
     def _current_settings_snapshot(self) -> dict:
         self.update_roi_from_fields()
         try:
@@ -322,14 +322,14 @@ class SKDDashboard(tk.Tk):
             return
         self.file_settings[self.seq_path] = self._current_settings_snapshot()
         self.apply_configuration(update_status=False)
-        self.status.configure(text=f"{self._base_status} | Settings applied to current file")
+        self.status.configure(text=f"{self._base_status} | settings applied to current file")
     def apply_current_settings_all(self):
         settings = self._current_settings_snapshot()
         targets = self.batch_paths or ([self.seq_path] if self.seq_path else [])
         for path in targets:
             self.file_settings[path] = dict(settings)
         self.apply_configuration(update_status=False)
-        self.status.configure(text=f"{self._base_status} | Settings applied to all files")
+        self.status.configure(text=f"{self._base_status} | settings applied to all files")
     def on_open(self, path_override: Optional[str] = None):
         if path_override:
             self._load_seq(path_override, reset_settings=False)
@@ -368,7 +368,7 @@ class SKDDashboard(tk.Tk):
             self.slider.configure(from_=0, to=max(0, self.num_frames-1))
             self._reset_tracking()
             self._applied_emissivity = None
-            self.status.configure(text=f"Status: Opened {os.path.basename(path)} | {self.width}x{self.height} | {self.num_frames} frames")
+            self.status.configure(text=f"Status: opened {os.path.basename(path)} | {self.width}x{self.height} | {self.num_frames} frames")
             meta_emiss = None
             try:
                 meta_emiss = float(im.object_parameters.emissivity)
@@ -723,7 +723,7 @@ class SKDDashboard(tk.Tk):
             finally:
                 self._in_slider_update = False
             roistr = f"ROI: {self.roi_rect if self.roi_rect else 'Full'}"
-            self._base_status = f"Status: Frame {self.current_idx+1}/{self.num_frames} | {roistr} | Thresh: {temp_thresh:.1f}{self.unit_label}"
+            self._base_status = f"Status: frame {self.current_idx+1}/{self.num_frames} | {roistr} | thresh: {temp_thresh:.1f}{self.unit_label}"
             self.status.configure(text=self._base_status)
             self._update_range_button_labels()
         except Exception:
@@ -835,7 +835,7 @@ class SKDDashboard(tk.Tk):
                             det.get('area', 0),
                             x, y, w, h
                         ))
-                    self.status.configure(text=f"Status: Exporting CSV [{p_idx+1}/{len(paths)}]: {os.path.basename(seq_path)} frame {idx+1}/{num_frames} (range {start_use}-{end_f})")
+                    self.status.configure(text=f"Status: exporting CSV [{p_idx+1}/{len(paths)}]: {os.path.basename(seq_path)} frame {idx+1}/{num_frames} (range {start_use}-{end_f})")
                     self.update_idletasks()
                 out_path = str(Path(seq_path).with_suffix(".csv"))
                 with open(out_path, "w", newline="") as f:
