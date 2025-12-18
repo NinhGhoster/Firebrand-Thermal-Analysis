@@ -54,7 +54,8 @@ conda env update -f environment.yml --prune
 - **Apply to `<file>`** saves settings for the current SEQ; **Apply all** applies to all loaded files.
 
 ### Region of Interest (ROI)
-- Drag on the canvas to define a ROI or edit ROI fields numerically.
+- Manual tab: drag on the canvas or edit ROI fields numerically.
+- Auto tab: auto-detect ROI above the fuel bed from the first frame (margin adjustable).
 - ROI updates apply to the current file or all files via Apply to `<file>` / Apply all.
 
 ### Export actions

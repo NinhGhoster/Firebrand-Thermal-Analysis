@@ -155,8 +155,15 @@ class SKDDashboard(tk.Tk):
 
         roi_group = ttk.LabelFrame(cfg, text="Region of interest")
         roi_group.pack(fill=tk.X, padx=6, pady=6)
-        roi_fields = ttk.Frame(roi_group)
-        roi_fields.pack(fill=tk.X)
+
+        roi_tabs = ttk.Notebook(roi_group)
+        roi_tabs.pack(fill=tk.X, expand=True)
+
+        # Manual ROI tab
+        manual_tab = ttk.Frame(roi_tabs)
+        roi_tabs.add(manual_tab, text="Manual")
+        roi_fields = ttk.Frame(manual_tab)
+        roi_fields.pack(fill=tk.X, pady=(2, 0))
         ttk.Label(roi_fields, text="X").pack(side=tk.LEFT)
         self.var_roi_x = tk.IntVar(value=0)
         self.entry_roi_x = ttk.Entry(roi_fields, width=5, textvariable=self.var_roi_x)
@@ -173,12 +180,25 @@ class SKDDashboard(tk.Tk):
         self.var_roi_h = tk.IntVar(value=0)
         self.entry_roi_h = ttk.Entry(roi_fields, width=5, textvariable=self.var_roi_h)
         self.entry_roi_h.pack(side=tk.LEFT)
-        btn_row = ttk.Frame(roi_group)
+        btn_row = ttk.Frame(manual_tab)
         btn_row.pack(fill=tk.X, pady=2)
         self.btn_roi_update = ttk.Button(btn_row, text="Apply ROI", command=self.update_roi_from_fields)
         self.btn_roi_update.pack(side=tk.LEFT, padx=2, pady=1)
         self.btn_roi_clear = ttk.Button(btn_row, text="Reset ROI", command=self.clear_roi)
         self.btn_roi_clear.pack(side=tk.LEFT, padx=2, pady=1)
+
+        # Auto ROI tab
+        auto_tab = ttk.Frame(roi_tabs)
+        roi_tabs.add(auto_tab, text="Auto")
+        ttk.Label(auto_tab, text="Detect ROI above fuel bed using first frame.", style="Muted.TLabel").pack(anchor=tk.W, padx=4, pady=(4, 2))
+        auto_row = ttk.Frame(auto_tab)
+        auto_row.pack(fill=tk.X, padx=4, pady=2)
+        ttk.Label(auto_row, text="Margin (px):").pack(side=tk.LEFT)
+        self.var_auto_margin = tk.IntVar(value=20)
+        ttk.Entry(auto_row, width=6, textvariable=self.var_auto_margin).pack(side=tk.LEFT, padx=(4, 8))
+        ttk.Button(auto_tab, text="Auto-detect ROI", command=self.detect_auto_roi).pack(fill=tk.X, padx=4, pady=4)
+        self.lbl_auto_result = ttk.Label(auto_tab, text="Auto ROI: (not set)", style="Muted.TLabel")
+        self.lbl_auto_result.pack(anchor=tk.W, padx=4, pady=(0, 4))
 
         apply_row = ttk.Frame(cfg)
         apply_row.pack(fill=tk.X, pady=(0, 4))
@@ -315,6 +335,60 @@ class SKDDashboard(tk.Tk):
             "export_end": end_f,
             "roi": self.roi_rect,
         }
+    def _auto_roi_from_frame(self, frame: np.ndarray, margin: int = 20) -> Tuple[int, int, int, int]:
+        h, w = frame.shape
+        global_mean = float(frame.mean())
+        global_std = float(frame.std())
+        if global_std <= 0:
+            return (0, 0, w, max(1, int(0.4 * h)))
+        thresh = global_mean + 0.5 * global_std
+        bottom = frame[h // 2 :, :]
+        row_mean = bottom.mean(axis=1)
+        above = row_mean > thresh
+        best_start = None
+        best_len = 0
+        cur_start = None
+        cur_len = 0
+        for idx, val in enumerate(above):
+            if val:
+                if cur_start is None:
+                    cur_start = idx
+                    cur_len = 1
+                else:
+                    cur_len += 1
+            else:
+                if cur_len > best_len:
+                    best_len = cur_len
+                    best_start = cur_start
+                cur_start = None
+                cur_len = 0
+        if cur_len > best_len:
+            best_len = cur_len
+            best_start = cur_start
+        if best_start is not None:
+            fuel_top = (h // 2) + best_start
+        else:
+            fuel_top = int(0.6 * h)
+        roi_h = max(1, fuel_top - max(0, margin))
+        roi_h = min(h, roi_h)
+        return (0, 0, w, roi_h)
+    def detect_auto_roi(self):
+        if self.im is None:
+            messagebox.showerror("Auto ROI", "Open a SEQ file first.")
+            return
+        try:
+            self.im.get_frame(0)
+            frame = np.array(self.im.final, copy=False).reshape((self.height, self.width))
+            margin = max(0, int(self.var_auto_margin.get()))
+            roi = self._auto_roi_from_frame(frame, margin=margin)
+            self.roi_rect = roi
+            self.update_roi_fields_from_rect()
+            self.status.configure(text=f"Status: auto ROI set to {roi}")
+            if hasattr(self, "lbl_auto_result"):
+                self.lbl_auto_result.configure(text=f"Auto ROI: {roi}")
+        except Exception as ex:
+            traceback.print_exc()
+            messagebox.showerror("Auto ROI", f"Auto ROI failed: {ex}")
     def _apply_settings(self, settings: dict):
         self.var_thresh.set(settings.get("thresh", self.temp_threshold))
         self.var_emissivity.set(settings.get("emissivity", 0.9))
