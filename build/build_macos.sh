@@ -11,7 +11,7 @@ set -euo pipefail
 # - FLIR_SDK_SHADOW_DIR: shadow dir for wheel build (default: /tmp/flir_sdk_build)
 
 APP_NAME="FirebrandThermalAnalysis"
-ENTRY="SDK_dashboard.py"
+ENTRY="FirebrandThermalAnalysis.py"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 if [[ -n "${FLIR_SDK_WHEEL:-}" ]]; then
@@ -29,7 +29,7 @@ elif [[ -n "${FLIR_SDK_PYTHON_DIR:-}" ]]; then
   fi
 fi
 
-opts=(--windowed --onedir --name "$APP_NAME" --collect-all fnv "$ENTRY")
+opts=(--windowed --onedir --noconfirm --name "$APP_NAME" --collect-all fnv "$ENTRY")
 
 if [[ -n "${FLIR_SDK_LIB_DIR:-}" ]]; then
   opts+=(--add-binary "${FLIR_SDK_LIB_DIR}/*:./")

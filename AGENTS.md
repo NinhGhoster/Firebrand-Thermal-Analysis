@@ -2,7 +2,7 @@
 
 ## Project Overview
 - Firebrand Thermal Analysis dashboard for FLIR SDK SEQ files.
-- Primary entry point: `SDK_dashboard.py`.
+- Primary entry point: `FirebrandThermalAnalysis.py`.
 - Packaged outputs live in `dist/` (large) and build artifacts in `build/`.
 - Support modules: `SDK.py` and `tutorial/` examples.
 
@@ -17,7 +17,7 @@
 - `conda env update -f environment.yml --prune`
 
 ## Run
-- Dashboard: `python SDK_dashboard.py`
+- Dashboard: `python FirebrandThermalAnalysis.py`
 - Single script: `python <script>.py`
 
 ## Build (PyInstaller)
@@ -43,6 +43,7 @@
 - Export end accepts `max` and defaults to full length per file.
 - Emissivity shows metadata for the active SEQ; default input is 0.9.
 - CSV export saves next to the SEQ with the same base name.
+- Export CSV (all files) runs in parallel across files.
 - Status text is prefixed with `Status:` for quick scanning.
 
 ## Code Style Guidelines

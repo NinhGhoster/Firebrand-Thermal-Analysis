@@ -5,11 +5,14 @@ Tkinter dashboard GUI for FLIR SDK tracking-based hotspot/ember detection.
 - Canvas: shows current frame with overlays
 """
 import base64
+import concurrent.futures
+import csv
+import multiprocessing
 import os
 import sys
+import threading
 import traceback
-from typing import Optional, Tuple, List
-import csv
+from typing import Optional, Tuple, List, Dict, Any
 import numpy as np
 from collections import OrderedDict
 from pathlib import Path
@@ -38,6 +41,223 @@ MAX_OBJECT_AREA_PIXELS = 150
 CENTROID_TRACKING_MAX_DIST = 40
 TRACK_MEMORY_FRAMES = 15
 
+
+def clamp_roi(
+    roi: Optional[Tuple[int, int, int, int]],
+    width: int,
+    height: int,
+) -> Optional[Tuple[int, int, int, int]]:
+    """Clamp ROI to frame bounds; returns None if ROI is not usable."""
+    if roi is None:
+        return None
+    try:
+        rx, ry, rw, rh = map(int, roi)
+    except Exception:
+        return None
+
+    if width <= 0 or height <= 0:
+        return None
+
+    rx = max(0, min(rx, width - 1))
+    ry = max(0, min(ry, height - 1))
+    rw = max(1, min(rw, width - rx))
+    rh = max(1, min(rh, height - ry))
+    if rw <= 0 or rh <= 0:
+        return None
+    return rx, ry, rw, rh
+
+
+def detect_firebrands(
+    frame: np.ndarray,
+    roi: Optional[Tuple[int, int, int, int]],
+    temp_thresh: float,
+) -> List[Dict[str, Any]]:
+    """Detect firebrand blobs above a temperature threshold inside an optional ROI."""
+    det_offset = (0, 0)
+    display = frame
+    if roi is not None:
+        rx, ry, rw, rh = roi
+        display = frame[ry : ry + rh, rx : rx + rw]
+        det_offset = (rx, ry)
+
+    if display.size == 0:
+        return []
+
+    binary_mask = (display > temp_thresh).astype(np.uint8)
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
+        binary_mask, connectivity=8
+    )
+    detections: List[Dict[str, Any]] = []
+    for lid in range(1, num_labels):
+        area = stats[lid, cv2.CC_STAT_AREA]
+        if not (MIN_OBJECT_AREA_PIXELS <= area <= MAX_OBJECT_AREA_PIXELS):
+            continue
+
+        x = stats[lid, cv2.CC_STAT_LEFT] + det_offset[0]
+        y = stats[lid, cv2.CC_STAT_TOP] + det_offset[1]
+        w = stats[lid, cv2.CC_STAT_WIDTH]
+        h = stats[lid, cv2.CC_STAT_HEIGHT]
+        centroid = (centroids[lid][0] + det_offset[0], centroids[lid][1] + det_offset[1])
+
+        sub = display[
+            stats[lid, cv2.CC_STAT_TOP] : stats[lid, cv2.CC_STAT_TOP] + h,
+            stats[lid, cv2.CC_STAT_LEFT] : stats[lid, cv2.CC_STAT_LEFT] + w,
+        ]
+        mask = (
+            labels[
+                stats[lid, cv2.CC_STAT_TOP] : stats[lid, cv2.CC_STAT_TOP] + h,
+                stats[lid, cv2.CC_STAT_LEFT] : stats[lid, cv2.CC_STAT_LEFT] + w,
+            ]
+            == lid
+        )
+        temps = sub[mask]
+        if temps.size == 0:
+            continue
+
+        detections.append(
+            {
+                "centroid": centroid,
+                "bbox": (x, y, w, h),
+                "max_temp": float(np.max(temps)),
+                "min_temp": float(np.min(temps)),
+                "avg_temp": float(np.mean(temps)),
+                "median_temp": float(np.median(temps)),
+                "area": int(area),
+            }
+        )
+    return detections
+
+
+def assign_tracks(
+    detections: List[Dict[str, Any]],
+    tracked_objects: "OrderedDict[int, Dict[str, Any]]",
+    next_id: int,
+    frame_idx: int,
+) -> Tuple["OrderedDict[int, Dict[str, Any]]", List[Dict[str, Any]], int]:
+    """Assign detections to existing tracks by nearest centroid, or create new tracks."""
+    new_tracked: "OrderedDict[int, Dict[str, Any]]" = OrderedDict()
+    for det in detections:
+        cx, cy = det["centroid"]
+        best_id = None
+        best_dist = None
+        for tid, obj in tracked_objects.items():
+            dist = np.hypot(cx - obj["centroid"][0], cy - obj["centroid"][1])
+            if dist <= CENTROID_TRACKING_MAX_DIST and (best_dist is None or dist < best_dist):
+                best_dist = dist
+                best_id = tid
+
+        if best_id is None:
+            best_id = next_id
+            next_id += 1
+
+        det["track_id"] = best_id
+        new_tracked[best_id] = {"centroid": det["centroid"], "last_seen": frame_idx}
+
+    for tid, obj in tracked_objects.items():
+        if tid not in new_tracked and frame_idx - obj.get("last_seen", frame_idx) <= TRACK_MEMORY_FRAMES:
+            new_tracked[tid] = obj
+    return new_tracked, detections, next_id
+
+
+def export_seq_to_csv_worker(seq_path: str, settings: Dict[str, Any]) -> Tuple[str, str, Optional[str]]:
+    """Parallel worker: export a single SEQ to CSV next to the source file.
+
+    Returns (seq_path, out_csv_path, error_message). error_message is None on success.
+    """
+    try:
+        if hasattr(cv2, "setNumThreads"):
+            cv2.setNumThreads(1)
+
+        try:
+            start_f = max(1, int(settings.get("export_start", 1)))
+        except (TypeError, ValueError):
+            start_f = 1
+
+        end_raw = str(settings.get("export_end", "max")).strip().lower()
+        temp_thresh = float(settings.get("thresh", TEMP_THRESHOLD_CELSIUS))
+
+        im = fnv.file.ImagerFile(seq_path)
+        unit_is_temp = im.has_unit(fnv.Unit.TEMPERATURE_FACTORY)
+        if unit_is_temp:
+            im.unit = fnv.Unit.TEMPERATURE_FACTORY
+            im.temp_type = DESIRED_TEMP_UNIT
+        else:
+            im.unit = fnv.Unit.COUNTS
+
+        try:
+            obj_params = im.object_parameters
+            obj_params.emissivity = float(settings.get("emissivity", 0.9))
+            im.object_parameters = obj_params
+        except Exception:
+            pass
+
+        num_frames = im.num_frames
+        width = im.width
+        height = im.height
+        roi = clamp_roi(settings.get("roi"), width, height)
+
+        try:
+            end_f = num_frames if end_raw in ("max", "", "none") else int(end_raw)
+        except (TypeError, ValueError):
+            end_f = num_frames
+
+        if end_f <= 0 or end_f > num_frames:
+            end_f = num_frames
+
+        start_use = max(1, min(start_f, num_frames))
+        if start_use > end_f:
+            start_use = end_f
+
+        tracked: "OrderedDict[int, Dict[str, Any]]" = OrderedDict()
+        next_id = 1
+        rows = []
+        for idx in range(start_use - 1, end_f):
+            im.get_frame(idx)
+            frame = np.array(im.final, copy=False).reshape((height, width))
+            detections = detect_firebrands(frame, roi, temp_thresh)
+            tracked, detections, next_id = assign_tracks(detections, tracked, next_id, idx)
+            for det in sorted(detections, key=lambda d: d.get("track_id", -1)):
+                x, y, w, h = det["bbox"]
+                rows.append(
+                    (
+                        idx + 1,
+                        det.get("track_id", -1),
+                        det["max_temp"],
+                        det.get("min_temp", det["max_temp"]),
+                        det.get("avg_temp", det["max_temp"]),
+                        det.get("median_temp", det["max_temp"]),
+                        det.get("area", 0),
+                        x,
+                        y,
+                        w,
+                        h,
+                    )
+                )
+
+        out_path = str(Path(seq_path).with_suffix(".csv"))
+        with open(out_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                [
+                    "frame",
+                    "firebrand_id",
+                    "max_temperature",
+                    "min_temperature",
+                    "avg_temperature",
+                    "median_temperature",
+                    "area_pixels",
+                    "bbox_x",
+                    "bbox_y",
+                    "bbox_w",
+                    "bbox_h",
+                ]
+            )
+            writer.writerows(rows)
+
+        return seq_path, out_path, None
+    except Exception as ex:
+        return seq_path, "", f"{ex}\n{traceback.format_exc()}"
+
 class SKDDashboard(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -65,6 +285,8 @@ class SKDDashboard(tk.Tk):
         self._canvas_size: Tuple[int, int] = (0, 0)
         self._last_frame = None
         self._base_status = "Status: ready"
+        self._export_in_progress = False
+        self._export_thread: Optional[threading.Thread] = None
         self.var_export_start = tk.IntVar(value=1)
         self.var_export_end = tk.StringVar(value="max")
         self.batch_paths: List[str] = []
@@ -155,10 +377,15 @@ class SKDDashboard(tk.Tk):
         self.file_frame.pack(fill=tk.X, pady=6)
         file_row = ttk.Frame(self.file_frame)
         file_row.pack(fill=tk.X, pady=2)
-        self.btn_open = ttk.Button(file_row, text="Open", command=self.on_open)
+        self.open_menu = tk.Menu(self, tearoff=0)
+        self.open_menu.add_command(label="Open SEQ file(s)...", command=self.on_open)
+        self.open_menu.add_command(label="Open folder...", command=self.on_open_folder)
+        self.btn_open = ttk.Button(file_row, text="Open", command=self._show_open_menu)
         self.btn_open.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-        ttk.Button(file_row, text="<<", command=self.on_prev_file).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-        ttk.Button(file_row, text=">>", command=self.on_next_file).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        self.btn_prev_file = ttk.Button(file_row, text="<<", command=self.on_prev_file)
+        self.btn_prev_file.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        self.btn_next_file = ttk.Button(file_row, text=">>", command=self.on_next_file)
+        self.btn_next_file.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
 
         # Playback
         playback_frame = ttk.LabelFrame(self.sidebar_inner, text="Playback")
@@ -252,7 +479,8 @@ class SKDDashboard(tk.Tk):
         ttk.Label(auto_row, text="Margin (px):").pack(side=tk.LEFT)
         self.var_auto_margin = tk.IntVar(value=180)
         ttk.Entry(auto_row, width=6, textvariable=self.var_auto_margin).pack(side=tk.LEFT, padx=(4, 8))
-        ttk.Button(auto_tab, text="Auto-detect ROI", command=self.detect_auto_roi).pack(fill=tk.X, padx=4, pady=4)
+        self.btn_auto_roi = ttk.Button(auto_tab, text="Auto-detect ROI", command=self.detect_auto_roi)
+        self.btn_auto_roi.pack(fill=tk.X, padx=4, pady=4)
         self.lbl_auto_result = ttk.Label(auto_tab, text="Auto ROI: (not set)", style="Muted.TLabel")
         self.lbl_auto_result.pack(anchor=tk.W, padx=4, pady=(0, 4))
 
@@ -436,6 +664,8 @@ class SKDDashboard(tk.Tk):
         roi_h = min(h, roi_h)
         return (0, 0, w, roi_h)
     def detect_auto_roi(self):
+        if self._export_in_progress:
+            return
         if self.im is None:
             messagebox.showerror("Auto ROI", "Open a SEQ file first.")
             return
@@ -472,19 +702,92 @@ class SKDDashboard(tk.Tk):
             self.file_settings[path] = dict(settings)
         self.apply_configuration(update_status=False)
         self.status.configure(text=f"{self._base_status} | settings applied to all files")
+    def _set_controls_enabled(self, enabled: bool):
+        state = tk.NORMAL if enabled else tk.DISABLED
+        widgets = [
+            getattr(self, "btn_open", None),
+            getattr(self, "btn_prev_file", None),
+            getattr(self, "btn_next_file", None),
+            getattr(self, "btn_play", None),
+            getattr(self, "btn_prev", None),
+            getattr(self, "btn_next", None),
+            getattr(self, "btn_set_start", None),
+            getattr(self, "btn_set_end", None),
+            getattr(self, "btn_roi_update", None),
+            getattr(self, "btn_roi_clear", None),
+            getattr(self, "btn_auto_roi", None),
+            getattr(self, "btn_apply_current", None),
+            getattr(self, "btn_apply_all", None),
+            getattr(self, "btn_export_menu", None),
+            getattr(self, "entry_emissivity", None),
+            getattr(self, "entry_roi_x", None),
+            getattr(self, "entry_roi_y", None),
+            getattr(self, "entry_roi_w", None),
+            getattr(self, "entry_roi_h", None),
+        ]
+        for w in widgets:
+            if w is None:
+                continue
+            try:
+                w.configure(state=state)
+            except Exception:
+                pass
+        try:
+            self.slider.configure(state=state)
+        except Exception:
+            pass
+    def _set_export_busy(self, busy: bool):
+        self._export_in_progress = busy
+        if busy:
+            self.playing = False
+            try:
+                self.btn_play.configure(text="Play")
+            except Exception:
+                pass
+        self._set_controls_enabled(not busy)
+    def _default_parallel_workers(self, task_count: int) -> int:
+        cpu = os.cpu_count() or 1
+        return max(1, min(task_count, max(1, cpu - 1)))
+    def _show_open_menu(self):
+        try:
+            x = self.btn_open.winfo_rootx()
+            y = self.btn_open.winfo_rooty() + self.btn_open.winfo_height()
+            self.open_menu.tk_popup(x, y)
+        finally:
+            try:
+                self.open_menu.grab_release()
+            except Exception:
+                pass
     def on_open(self, path_override: Optional[str] = None):
         if path_override:
             self._load_seq(path_override, reset_settings=False)
             return
         paths = filedialog.askopenfilenames(title="Select SEQ file(s)", filetypes=[("SEQ Files","*.seq"), ("All Files","*.*")])
-        seq_paths = list(paths) if paths else []
-        if not seq_paths:
-            folder = filedialog.askdirectory(title="Select folder containing SEQ files")
-            if folder:
-                seq_paths = [os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(".seq")]
+        seq_paths = [p for p in paths if str(p).lower().endswith(".seq")] if paths else []
         if not seq_paths:
             return
-        seq_paths = sorted(seq_paths)
+        self._set_batch_paths(seq_paths)
+    def on_open_folder(self, folder_override: Optional[str] = None):
+        folder = folder_override or filedialog.askdirectory(title="Select folder containing SEQ files")
+        if not folder:
+            return
+        seq_paths = []
+        for root, dirnames, filenames in os.walk(folder):
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            for name in filenames:
+                if name.startswith("."):
+                    continue
+                if name.lower().endswith(".seq"):
+                    seq_paths.append(os.path.join(root, name))
+        if not seq_paths:
+            messagebox.showinfo(
+                "Open SEQ files",
+                "No .seq files found in the selected folder (including subfolders).",
+            )
+            return
+        self._set_batch_paths(seq_paths)
+    def _set_batch_paths(self, seq_paths: List[str]):
+        seq_paths = sorted(dict.fromkeys(seq_paths))
         self.batch_paths = seq_paths
         self.batch_index = 0
         self._load_seq(seq_paths[0], reset_settings=True)
@@ -538,6 +841,8 @@ class SKDDashboard(tk.Tk):
             traceback.print_exc()
             messagebox.showerror("Open error", f"Failed to open file.\n{e}")
     def on_play_pause(self):
+        if self._export_in_progress:
+            return
         if self.im is None: return
         self.playing = not self.playing
         self.btn_play.configure(text="Pause" if self.playing else "Play")
@@ -551,28 +856,38 @@ class SKDDashboard(tk.Tk):
         self._reset_tracking()
         self._render_current()
     def on_prev(self):
+        if self._export_in_progress:
+            return
         if self.im is None: return
         self.playing = False
         self.btn_play.configure(text="Play")
         self.current_idx = max(0, self.current_idx - 1)
         self._render_current()
     def on_next(self):
+        if self._export_in_progress:
+            return
         if self.im is None: return
         self.playing = False
         self.btn_play.configure(text="Play")
         self.current_idx = min(self.num_frames - 1, self.current_idx + 1)
         self._render_current()
     def on_prev_file(self):
+        if self._export_in_progress:
+            return
         if not self.batch_paths:
             return
         self.batch_index = (self.batch_index - 1) % len(self.batch_paths)
         self._load_seq(self.batch_paths[self.batch_index], reset_settings=False)
     def on_next_file(self):
+        if self._export_in_progress:
+            return
         if not self.batch_paths:
             return
         self.batch_index = (self.batch_index + 1) % len(self.batch_paths)
         self._load_seq(self.batch_paths[self.batch_index], reset_settings=False)
     def on_slider(self, val):
+        if self._export_in_progress:
+            return
         if self.im is None: return
         if self._in_slider_update:
             return
@@ -583,6 +898,8 @@ class SKDDashboard(tk.Tk):
         self.current_idx = max(0, min(self.num_frames-1, idx))
         self._render_current()
     def update_roi_from_fields(self):
+        if self._export_in_progress:
+            return
         try:
             x = max(0, int(self.var_roi_x.get()))
             y = max(0, int(self.var_roi_y.get()))
@@ -669,6 +986,8 @@ class SKDDashboard(tk.Tk):
         self.var_roi_h.set(self.height)
         self._render_current()
     def on_mouse_down(self, e):
+        if self._export_in_progress:
+            return
         if self.im is None: return
         xi, yi = self._canvas_to_image(e.x, e.y)
         self.mouse_down = (xi, yi)
@@ -676,6 +995,8 @@ class SKDDashboard(tk.Tk):
         self.update_roi_fields_from_rect()
         self._render_current()
     def on_mouse_drag(self, e):
+        if self._export_in_progress:
+            return
         if self.im is None or self.mouse_down is None: return
         x0, y0 = self.mouse_down
         x1, y1 = self._canvas_to_image(e.x, e.y)
@@ -686,9 +1007,13 @@ class SKDDashboard(tk.Tk):
         self.update_roi_fields_from_rect()
         self._render_current()
     def on_mouse_up(self, e):
+        if self._export_in_progress:
+            return
         self.mouse_down = None
         self.update_roi_fields_from_rect()
     def on_mouse_move(self, e):
+        if self._export_in_progress:
+            return
         if self.im is None or self._last_frame is None: return
         xi, yi = self._canvas_to_image(e.x, e.y)
         if xi < 0 or yi < 0 or xi >= self.width or yi >= self.height:
@@ -725,64 +1050,10 @@ class SKDDashboard(tk.Tk):
         xi = max(0, min(self.width-1, xi)); yi = max(0, min(self.height-1, yi))
         return xi, yi
     def _detect_firebrands(self, frame: np.ndarray, roi: Optional[Tuple[int,int,int,int]], temp_thresh: float):
-        det_offset = (0, 0)
-        display = frame
-        if roi is not None:
-            rx, ry, rw, rh = roi
-            display = frame[ry:ry+rh, rx:rx+rw]
-            det_offset = (rx, ry)
-        binary_mask = (display > temp_thresh).astype(np.uint8)
-        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(binary_mask, connectivity=8)
-        detections = []
-        for lid in range(1, num_labels):
-            area = stats[lid, cv2.CC_STAT_AREA]
-            if MIN_OBJECT_AREA_PIXELS <= area <= MAX_OBJECT_AREA_PIXELS:
-                x = stats[lid, cv2.CC_STAT_LEFT] + det_offset[0]
-                y = stats[lid, cv2.CC_STAT_TOP] + det_offset[1]
-                w = stats[lid, cv2.CC_STAT_WIDTH]
-                h = stats[lid, cv2.CC_STAT_HEIGHT]
-                centroid = (centroids[lid][0] + det_offset[0], centroids[lid][1] + det_offset[1])
-                sub = display[stats[lid, cv2.CC_STAT_TOP]:stats[lid, cv2.CC_STAT_TOP]+h,
-                              stats[lid, cv2.CC_STAT_LEFT]:stats[lid, cv2.CC_STAT_LEFT]+w]
-                mask = (labels[stats[lid, cv2.CC_STAT_TOP]:stats[lid, cv2.CC_STAT_TOP]+h,
-                               stats[lid, cv2.CC_STAT_LEFT]:stats[lid, cv2.CC_STAT_LEFT]+w] == lid)
-                temps = sub[mask]
-                if temps.size == 0:
-                    continue
-                max_temp = float(np.max(temps))
-                min_temp = float(np.min(temps))
-                avg_temp = float(np.mean(temps))
-                median_temp = float(np.median(temps))
-                detections.append({
-                    'centroid': centroid,
-                    'bbox': (x, y, w, h),
-                    'max_temp': max_temp,
-                    'min_temp': min_temp,
-                    'avg_temp': avg_temp,
-                    'median_temp': median_temp,
-                    'area': int(area)
-                })
-        return detections
+        roi = clamp_roi(roi, self.width, self.height)
+        return detect_firebrands(frame, roi, temp_thresh)
     def _assign_tracks(self, detections: List[dict], tracked_objects: OrderedDict, next_id: int, frame_idx: int):
-        new_tracked = OrderedDict()
-        for det in detections:
-            cx, cy = det['centroid']
-            best_id = None
-            best_dist = None
-            for tid, obj in tracked_objects.items():
-                dist = np.hypot(cx - obj['centroid'][0], cy - obj['centroid'][1])
-                if dist <= CENTROID_TRACKING_MAX_DIST and (best_dist is None or dist < best_dist):
-                    best_dist = dist
-                    best_id = tid
-            if best_id is None:
-                best_id = next_id
-                next_id += 1
-            det['track_id'] = best_id
-            new_tracked[best_id] = {'centroid': det['centroid'], 'last_seen': frame_idx}
-        for tid, obj in tracked_objects.items():
-            if tid not in new_tracked and frame_idx - obj.get('last_seen', frame_idx) <= TRACK_MEMORY_FRAMES:
-                new_tracked[tid] = obj
-        return new_tracked, detections, next_id
+        return assign_tracks(detections, tracked_objects, next_id, frame_idx)
     def _get_tracked_detections(self, frame_idx: int, frame: np.ndarray,
                                 roi: Optional[Tuple[int,int,int,int]], temp_thresh: float,
                                 update_tracker: bool = True) -> List[dict]:
@@ -866,7 +1137,8 @@ class SKDDashboard(tk.Tk):
                 self._in_slider_update = False
             roistr = f"ROI: {self.roi_rect if self.roi_rect else 'Full'}"
             self._base_status = f"Status: frame {self.current_idx+1}/{self.num_frames} | {roistr} | thresh: {temp_thresh:.1f}{self.unit_label}"
-            self.status.configure(text=self._base_status)
+            if not self._export_in_progress:
+                self.status.configure(text=self._base_status)
             self._update_range_button_labels()
         except Exception:
             traceback.print_exc()
@@ -911,7 +1183,81 @@ class SKDDashboard(tk.Tk):
         if not paths:
             messagebox.showerror("Export", "Open a SEQ file first.")
             return
-        self._export_csv_for_paths(paths)
+        if self._export_in_progress:
+            messagebox.showinfo("Export", "Export is already running.")
+            return
+        if len(paths) <= 1:
+            self._export_csv_for_paths(paths)
+            return
+        self._export_csv_for_paths_parallel(paths)
+    def _export_csv_for_paths_parallel(self, paths: List[str]):
+        try:
+            self.update_roi_from_fields()
+        except Exception:
+            pass
+
+        default_settings = self._current_settings_snapshot()
+        tasks: List[Tuple[str, Dict[str, Any]]] = []
+        for seq_path in paths:
+            settings = dict(self.file_settings.get(seq_path, default_settings))
+            tasks.append((seq_path, settings))
+
+        max_workers = self._default_parallel_workers(len(tasks))
+        base_status = self._base_status
+        total = len(tasks)
+
+        self._set_export_busy(True)
+        self.status.configure(
+            text=f"Status: exporting CSV (parallel, {max_workers} workers) 0/{total}"
+        )
+        self.update_idletasks()
+
+        def _run_exports():
+            completed = 0
+            errors: List[Tuple[str, str]] = []
+            try:
+                with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+                    future_map = {
+                        executor.submit(export_seq_to_csv_worker, seq_path, settings): seq_path
+                        for (seq_path, settings) in tasks
+                    }
+                    for future in concurrent.futures.as_completed(future_map):
+                        seq_path = future_map[future]
+                        try:
+                            _, out_path, err = future.result()
+                        except Exception as ex:
+                            out_path = ""
+                            err = f"{ex}\n{traceback.format_exc()}"
+
+                        if err:
+                            errors.append((seq_path, err))
+
+                        completed += 1
+                        name = os.path.basename(seq_path)
+                        status_text = (
+                            f"Status: exporting CSV (parallel) {completed}/{total} done | last: {name}"
+                        )
+                        self.after(0, lambda t=status_text: self.status.configure(text=t))
+            finally:
+                def _finish():
+                    self._set_export_busy(False)
+                    if errors:
+                        msg_lines = ["Export finished with errors:"]
+                        for seq_path, err in errors[:5]:
+                            first_line = (err.splitlines() or ["error"])[0]
+                            msg_lines.append(f"- {os.path.basename(seq_path)}: {first_line}")
+                        if len(errors) > 5:
+                            msg_lines.append(f"... and {len(errors) - 5} more")
+                        messagebox.showerror("Export", "\n".join(msg_lines))
+                        self.status.configure(text=f"{base_status} | export completed with errors")
+                    else:
+                        messagebox.showinfo("Export", "CSV export complete.")
+                        self.status.configure(text=f"{base_status} | CSV export complete")
+
+                self.after(0, _finish)
+
+        self._export_thread = threading.Thread(target=_run_exports, daemon=True)
+        self._export_thread.start()
     def _export_csv_for_paths(self, paths: List[str]):
         try:
             self._ensure_emissivity()
@@ -1003,8 +1349,12 @@ class SKDDashboard(tk.Tk):
         except Exception as ex:
             traceback.print_exc()
             messagebox.showerror("Export", f"Export failed: {ex}")
+
 def main():
+    multiprocessing.freeze_support()
     app = SKDDashboard()
     app.mainloop()
+
+
 if __name__ == "__main__":
     main()

@@ -3,7 +3,7 @@ Firebrand Thermal Analysis dashboard for FLIR Science File SDK SEQ files.
 
 ## Highlights
 - Open one SEQ, multiple SEQs, or a folder of SEQ files in a single flow.
-- Batch CSV export using shared configuration, ROI, and export range.
+- Batch CSV export (parallel across files) using shared configuration, ROI, and export range.
 - 1-based start/end trim with `max` to use each file's full length.
 - Per-detection stats: max/min/avg/median temperature, area, and bbox.
 - Export current frame to JPG with ROI and detection overlays.
@@ -24,7 +24,7 @@ pip install "SDK installation/FileSDK-2024.7.1-cp312-cp312-macosx_10_14_universa
 # Windows:
 # pip install "SDK installation/FileSDK-2024.7.1-cp312-cp312-win_amd64.whl"
 
-python SDK_dashboard.py
+python FirebrandThermalAnalysis.py
 ```
 
 Linux note: run the SDK installer in `SDK installation/`, then build a wheel from
@@ -38,8 +38,8 @@ conda env update -f environment.yml --prune
 
 ## Using the Dashboard
 ### Open SEQ files
-- **Open** loads one file, multiple files, or a folder of SEQ files.
-- When a folder is selected, all `.seq` files are loaded in sorted order.
+- **Open** opens a small menu where you can load SEQ file(s) or a folder.
+- When a folder is selected, all `.seq` files are discovered recursively (including subfolders) and loaded in sorted order.
 - Use **<< / >>** to switch the current view.
 
 ### Playback
@@ -61,7 +61,7 @@ conda env update -f environment.yml --prune
 ### Export actions
 - Single **Export...** button opens a menu:
   - **Export CSV (current)**: saves `basename.csv` next to the SEQ.
-  - **Export CSV (all files)**: exports all loaded SEQs with shared settings.
+  - **Export CSV (all files)**: exports all loaded SEQs in parallel (one process per SEQ).
   - **Save frame image (JPG)**: saves `basename_frame_00001.jpg` with overlays next to the SEQ.
 
 ## How it works
@@ -160,7 +160,7 @@ Install `appimagetool`, then run:
 - **Counts vs C**: if the file has no temperature unit, values are in counts.
 
 ## Repository Layout
-- `SDK_dashboard.py`: main dashboard UI and export logic.
+- `FirebrandThermalAnalysis.py`: main dashboard UI and export logic.
 - `SDK.py`: legacy tracking + detection implementation.
 - `SDK installation/`: FLIR SDK installers and wheels.
 - `build/`: platform build scripts and packaging helpers.

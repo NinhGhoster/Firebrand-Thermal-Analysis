@@ -10,11 +10,11 @@ $ErrorActionPreference = "Stop"
 # - FLIR_SDK_SHADOW_DIR: shadow dir for wheel build (default: C:\temp\flir_sdk_build)
 
 $AppName = "FirebrandThermalAnalysis"
-$Entry = "SDK_dashboard.py"
+$Entry = "FirebrandThermalAnalysis.py"
 $Python = $env:PYTHON_BIN
 if (-not $Python) { $Python = "python" }
 
-$opts = @("--windowed","--onedir","--name",$AppName,"--collect-all","fnv",$Entry)
+$opts = @("--windowed","--onedir","--noconfirm","--name",$AppName,"--collect-all","fnv",$Entry)
 
 if ($env:FLIR_SDK_WHEEL) {
   & $Python -m pip install $env:FLIR_SDK_WHEEL

@@ -2,14 +2,14 @@
 from PyInstaller.utils.hooks import collect_all
 
 datas = []
-binaries = [('/Applications/FLIR Science File SDK.app/Contents/Resources/lib/*', './'), ('/Applications/FLIR Science File SDK.app/Contents/Resources/bin/*', './')]
+binaries = []
 hiddenimports = []
 tmp_ret = collect_all('fnv')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
-    ['SDK_dashboard.py'],
+    ['FirebrandThermalAnalysis.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,
