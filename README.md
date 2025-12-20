@@ -29,10 +29,6 @@ pip install "SDK/FileSDK-2024.7.1-cp312-cp312-macosx_10_14_universal2.whl"
 python FirebrandThermalAnalysis.py
 ```
 
-Linux note: if you have the SDK installer instead of a wheel, build a wheel from
-the installed SDK Python directory (`setup.py bdist_wheel --shadow-dir ...`) and
-`pip install` the resulting wheel.
-
 ## Update the Conda Environment
 ```bash
 conda env update -f environment.yml --prune
