@@ -3,7 +3,7 @@
 ## Project Overview
 - Firebrand Thermal Analysis dashboard for FLIR SDK SEQ files.
 - Primary entry point: `FirebrandThermalAnalysis.py`.
-- Packaged outputs live in `dist/` (large) and build artifacts in `build/`.
+- Packaged outputs are generated under `dist/` (ignored) and build artifacts under `build/`.
 - Support modules: `SDK.py` and `tutorial/` examples.
 
 ## Setup
@@ -22,7 +22,7 @@
 
 ## Build (PyInstaller)
 - macOS: `./build/build_macos.sh`
-- Windows: `.\build\build_windows.ps1`
+- Windows: `.\build\build_windows.ps1` (single-file `dist/FirebrandThermalAnalysis.exe`)
 - Linux: `./build/build_linux.sh`
 - GitHub Actions: `.github/workflows/build.yml` (runs on `workflow_dispatch` and `v*` tags)
 - Optional env vars:
@@ -32,7 +32,7 @@
 
 ## Package Installers
 - macOS: `./build/package_macos_dmg.sh`
-- Windows: `.\build\package_windows.ps1` (requires Inno Setup)
+- Windows: `.\build\package_windows.ps1` (requires Inno Setup; wraps the single EXE)
 - Linux: `./build/package_linux_appimage.sh` (requires `appimagetool`; includes a default icon)
 
 ## Lint/Test

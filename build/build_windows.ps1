@@ -14,7 +14,7 @@ $Entry = "FirebrandThermalAnalysis.py"
 $Python = $env:PYTHON_BIN
 if (-not $Python) { $Python = "python" }
 
-$opts = @("--windowed","--onedir","--noconfirm","--name",$AppName,"--collect-all","fnv",$Entry)
+$opts = @("--windowed","--onefile","--noconfirm","--name",$AppName,"--collect-all","fnv",$Entry)
 
 if ($env:FLIR_SDK_WHEEL) {
   & $Python -m pip install $env:FLIR_SDK_WHEEL
@@ -36,4 +36,4 @@ if ($env:FLIR_SDK_LIB_DIR) { $opts += @("--add-binary","$env:FLIR_SDK_LIB_DIR\\*
 if ($env:FLIR_SDK_BIN_DIR) { $opts += @("--add-binary","$env:FLIR_SDK_BIN_DIR\\*;.") }
 
 & $Python -m PyInstaller @opts
-Write-Host "Build output: dist\$AppName"
+Write-Host "Build output: dist\$AppName.exe"

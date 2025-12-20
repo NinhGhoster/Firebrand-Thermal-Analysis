@@ -119,7 +119,9 @@ PyInstaller is included in `environment.yml`; install it manually if missing.
 ### GitHub Actions (CI)
 The workflow at `.github/workflows/build.yml` builds macOS, Windows, and Linux
 distributions on demand or when you push a tag like `v0.1.0`.
-Artifacts are uploaded to the workflow run.
+Artifacts are uploaded to the workflow run and published on releases as
+`FirebrandThermalAnalysis.dmg`, `FirebrandThermalAnalysis.exe`, and
+`FirebrandThermalAnalysis.AppImage`.
 
 ### macOS
 ```bash
@@ -133,6 +135,7 @@ Optional env vars:
 ```powershell
 .\build\build_windows.ps1
 ```
+Build output: `dist/FirebrandThermalAnalysis.exe` (single file).
 Optional env vars:
 - `FLIR_SDK_WHEEL` (preferred) or `FLIR_SDK_PYTHON_DIR` + `FLIR_SDK_SHADOW_DIR`
 - `FLIR_SDK_LIB_DIR` and `FLIR_SDK_BIN_DIR` to bundle SDK DLLs
@@ -156,6 +159,7 @@ Install Inno Setup, then run:
 ```powershell
 .\build\package_windows.ps1
 ```
+This packages the single-file EXE into an optional installer.
 
 ### Linux (AppImage)
 Install `appimagetool`, then run:
@@ -165,8 +169,8 @@ Install `appimagetool`, then run:
 The script generates a default 256x256 icon for AppImage metadata.
 
 ## Troubleshooting
-- **"FLIR SDK required"**: ensure the SDK wheel is installed and the build uses
-  the bundled `fnv` package (build scripts already include `--collect-all fnv`).
+- **"FLIR SDK required"**: ensure the SDK wheel is installed and the build
+  scripts bundle the `fnv` package.
 - **OpenCV warning about metadata depth**: the SDK encoder falls back to 8-bit;
   it is expected and does not affect temperature calculations.
 - **Counts vs C**: if the file has no temperature unit, values are in counts.
@@ -176,7 +180,7 @@ The script generates a default 256x256 icon for AppImage metadata.
 - `SDK.py`: legacy tracking + detection implementation.
 - `SDK/`: FLIR SDK installers and wheels.
 - `build/`: platform build scripts and packaging helpers.
-- `dist/`: packaged outputs (large).
+- `dist/`: packaged outputs (generated/ignored).
 - `tutorial/`: SDK usage examples.
 
 ## Credits

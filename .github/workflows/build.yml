@@ -49,14 +49,11 @@ jobs:
           PYTHON_BIN: python
         run: .\build\build_windows.ps1
         shell: pwsh
-      - name: Package Windows zip
-        run: Compress-Archive -Path dist/FirebrandThermalAnalysis -DestinationPath dist/FirebrandThermalAnalysis.zip
-        shell: pwsh
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: FirebrandThermalAnalysis.zip
-          path: dist/FirebrandThermalAnalysis.zip
+          name: FirebrandThermalAnalysis.exe
+          path: dist/FirebrandThermalAnalysis.exe
 
   build-linux:
     runs-on: ubuntu-latest
@@ -107,5 +104,5 @@ jobs:
         with:
           files: |
             release/FirebrandThermalAnalysis.dmg
-            release/FirebrandThermalAnalysis.zip
+            release/FirebrandThermalAnalysis.exe
             release/FirebrandThermalAnalysis.AppImage
