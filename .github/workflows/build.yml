@@ -1,4 +1,4 @@
-name: Build Distributions
+name: Build distributions
 
 on:
   workflow_dispatch:
