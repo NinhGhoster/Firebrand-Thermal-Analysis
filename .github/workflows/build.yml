@@ -29,10 +29,8 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: macos-distribution
-          path: |
-            dist/FirebrandThermalAnalysis.app
-            dist/FirebrandThermalAnalysis.dmg
+          name: FirebrandThermalAnalysis.dmg
+          path: dist/FirebrandThermalAnalysis.dmg
 
   build-windows:
     runs-on: windows-latest
@@ -51,12 +49,14 @@ jobs:
           PYTHON_BIN: python
         run: .\build\build_windows.ps1
         shell: pwsh
+      - name: Package Windows zip
+        run: Compress-Archive -Path dist/FirebrandThermalAnalysis -DestinationPath dist/FirebrandThermalAnalysis.zip
+        shell: pwsh
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-distribution
-          path: |
-            dist/FirebrandThermalAnalysis
+          name: FirebrandThermalAnalysis.zip
+          path: dist/FirebrandThermalAnalysis.zip
 
   build-linux:
     runs-on: ubuntu-latest
@@ -87,10 +87,8 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-distribution
-          path: |
-            dist/FirebrandThermalAnalysis
-            dist/FirebrandThermalAnalysis.AppImage
+          name: FirebrandThermalAnalysis.AppImage
+          path: dist/FirebrandThermalAnalysis.AppImage
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -103,16 +101,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release
-      - name: Package release assets
-        run: |
-          cd release
-          zip -r ../FirebrandThermalAnalysis-macos.zip macos-distribution
-          zip -r ../FirebrandThermalAnalysis-windows.zip windows-distribution
-          zip -r ../FirebrandThermalAnalysis-linux.zip linux-distribution
+          merge-multiple: true
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            FirebrandThermalAnalysis-macos.zip
-            FirebrandThermalAnalysis-windows.zip
-            FirebrandThermalAnalysis-linux.zip
+            release/FirebrandThermalAnalysis.dmg
+            release/FirebrandThermalAnalysis.zip
+            release/FirebrandThermalAnalysis.AppImage

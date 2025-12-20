@@ -7,11 +7,14 @@ Tkinter dashboard GUI for FLIR SDK tracking-based hotspot/ember detection.
 import base64
 import concurrent.futures
 import csv
+import json
 import multiprocessing
 import os
 import sys
 import threading
 import traceback
+import urllib.request
+import webbrowser
 from typing import Optional, Tuple, List, Dict, Any
 import numpy as np
 from collections import OrderedDict
@@ -40,6 +43,13 @@ MIN_OBJECT_AREA_PIXELS = 3
 MAX_OBJECT_AREA_PIXELS = 150
 CENTROID_TRACKING_MAX_DIST = 40
 TRACK_MEMORY_FRAMES = 15
+APP_VERSION = "v0.0.1"
+GITHUB_OWNER = "NinhGhoster"
+GITHUB_REPO = "FirebrandThermalAnalysis"
+GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases"
+GITHUB_API_LATEST_URL = (
+    f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
+)
 
 
 def clamp_roi(
@@ -257,6 +267,32 @@ def export_seq_to_csv_worker(seq_path: str, settings: Dict[str, Any]) -> Tuple[s
         return seq_path, out_path, None
     except Exception as ex:
         return seq_path, "", f"{ex}\n{traceback.format_exc()}"
+
+
+def _parse_version(tag: str) -> Optional[Tuple[int, ...]]:
+    tag = tag.strip()
+    if tag.lower().startswith("v"):
+        tag = tag[1:]
+    if not tag:
+        return None
+    parts = tag.split(".")
+    nums: List[int] = []
+    for part in parts:
+        if not part.isdigit():
+            return None
+        nums.append(int(part))
+    return tuple(nums) if nums else None
+
+
+def _is_newer_version(current: str, latest: str) -> bool:
+    cur_parsed = _parse_version(current)
+    latest_parsed = _parse_version(latest)
+    if cur_parsed and latest_parsed:
+        max_len = max(len(cur_parsed), len(latest_parsed))
+        cur_parsed += (0,) * (max_len - len(cur_parsed))
+        latest_parsed += (0,) * (max_len - len(latest_parsed))
+        return latest_parsed > cur_parsed
+    return latest != current
 
 class SKDDashboard(tk.Tk):
     def __init__(self):
@@ -500,7 +536,11 @@ class SKDDashboard(tk.Tk):
 
         footer = ttk.Frame(self.sidebar_inner)
         footer.pack(fill=tk.X, pady=(8, 0))
-        ttk.Label(footer, text="Developed from FLIR SDK by H. Nguyen (v0.0.1)", style="Muted.TLabel").pack(anchor=tk.W)
+        ttk.Label(
+            footer,
+            text=f"Developed from FLIR SDK by H. Nguyen ({APP_VERSION})",
+            style="Muted.TLabel",
+        ).pack(anchor=tk.W)
         ttk.Button(footer, text="Check for updates", command=self.on_check_updates).pack(anchor=tk.W, fill=tk.X, pady=(2, 0))
 
         # Image/canvas
@@ -530,7 +570,41 @@ class SKDDashboard(tk.Tk):
         self.canvas.bind("<Motion>", self.on_mouse_move)
         self.canvas.bind("<Configure>", self.on_canvas_resize)
     def on_check_updates(self):
-        messagebox.showinfo("Updates", "v0.0.1\nNo update source configured.")
+        try:
+            req = urllib.request.Request(
+                GITHUB_API_LATEST_URL,
+                headers={"User-Agent": "FirebrandThermalAnalysis"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except Exception as ex:
+            messagebox.showerror("Updates", f"Could not check for updates.\n{ex}")
+            return
+
+        latest = data.get("tag_name") or ""
+        release_url = data.get("html_url") or GITHUB_RELEASES_URL
+        if not latest:
+            messagebox.showinfo(
+                "Updates",
+                f"Current version: {APP_VERSION}\nNo release info found.",
+            )
+            return
+
+        if _is_newer_version(APP_VERSION, latest):
+            open_now = messagebox.askyesno(
+                "Update available",
+                f"New version {latest} is available (current {APP_VERSION}).\n"
+                "Open the release page?",
+            )
+            if open_now:
+                webbrowser.open(release_url)
+        else:
+            open_now = messagebox.askyesno(
+                "Up to date",
+                f"You are up to date ({APP_VERSION}).\nOpen the release page?",
+            )
+            if open_now:
+                webbrowser.open(release_url)
     def show_export_menu(self):
         menu = tk.Menu(self, tearoff=0)
         menu.add_command(label="Export CSV (current)", command=self.export_video_csv)
