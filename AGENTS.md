@@ -7,11 +7,11 @@
 - Support modules: `SDK.py` and `tutorial/` examples.
 
 ## Setup
-- Install FLIR SDK from `SDK installation/`.
+- Install FLIR SDK from `SDK/`.
 - Create environment: `conda env create -f environment.yml`.
 - Activate: `conda activate firebrand-thermal`.
-- Install SDK wheel (per OS) from `SDK installation/`.
-- Linux: run the SDK installer and build a wheel from the installed SDK Python dir.
+- Install SDK wheel (per OS) from `SDK/`.
+- Linux: if using the SDK installer, build a wheel from the installed SDK Python dir.
 
 ## Update Environment
 - `conda env update -f environment.yml --prune`
@@ -23,6 +23,7 @@
 ## Build (PyInstaller)
 - macOS: `./build/build_macos.sh`
 - Windows: `.\build\build_windows.ps1`
+- Linux: `./build/build_linux.sh`
 - Optional env vars:
   - `FLIR_SDK_WHEEL` (preferred) or `FLIR_SDK_PYTHON_DIR` + `FLIR_SDK_SHADOW_DIR`
   - `FLIR_SDK_LIB_DIR` + `FLIR_SDK_BIN_DIR` for SDK runtime libraries

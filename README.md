@@ -10,7 +10,7 @@ Firebrand Thermal Analysis dashboard for FLIR Science File SDK SEQ files.
 - Keyboard shortcuts for playback and frame stepping.
 
 ## Requirements
-- FLIR Science File SDK installed (see `SDK installation/`).
+- FLIR Science File SDK installed (see `SDK/` for wheels).
 - Python 3.12 (conda environment recommended).
 
 ## Quick Start
@@ -20,14 +20,16 @@ conda activate firebrand-thermal
 
 # Install the FLIR SDK Python wheel for your OS
 # macOS:
-pip install "SDK installation/FileSDK-2024.7.1-cp312-cp312-macosx_10_14_universal2.whl"
+pip install "SDK/FileSDK-2024.7.1-cp312-cp312-macosx_10_14_universal2.whl"
 # Windows:
-# pip install "SDK installation/FileSDK-2024.7.1-cp312-cp312-win_amd64.whl"
+# pip install "SDK/FileSDK-2024.7.1-cp312-cp312-win_amd64.whl"
+# Linux:
+# pip install "SDK/FileSDK-2024.7.1-cp312-cp312-linux_x86_64.whl"
 
 python FirebrandThermalAnalysis.py
 ```
 
-Linux note: run the SDK installer in `SDK installation/`, then build a wheel from
+Linux note: if you have the SDK installer instead of a wheel, build a wheel from
 the installed SDK Python directory (`setup.py bdist_wheel --shadow-dir ...`) and
 `pip install` the resulting wheel.
 
@@ -134,6 +136,14 @@ Optional env vars:
 - `FLIR_SDK_WHEEL` (preferred) or `FLIR_SDK_PYTHON_DIR` + `FLIR_SDK_SHADOW_DIR`
 - `FLIR_SDK_LIB_DIR` and `FLIR_SDK_BIN_DIR` to bundle SDK DLLs
 
+### Linux
+```bash
+./build/build_linux.sh
+```
+Optional env vars:
+- `FLIR_SDK_WHEEL` (preferred) or `FLIR_SDK_PYTHON_DIR` + `FLIR_SDK_SHADOW_DIR`
+- `FLIR_SDK_LIB_DIR` and `FLIR_SDK_BIN_DIR` to bundle SDK shared libs
+
 ## Package Installers
 ### macOS (DMG)
 ```bash
@@ -162,7 +172,7 @@ Install `appimagetool`, then run:
 ## Repository Layout
 - `FirebrandThermalAnalysis.py`: main dashboard UI and export logic.
 - `SDK.py`: legacy tracking + detection implementation.
-- `SDK installation/`: FLIR SDK installers and wheels.
+- `SDK/`: FLIR SDK installers and wheels.
 - `build/`: platform build scripts and packaging helpers.
 - `dist/`: packaged outputs (large).
 - `tutorial/`: SDK usage examples.
