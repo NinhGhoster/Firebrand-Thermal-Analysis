@@ -9,8 +9,7 @@ $ErrorActionPreference = "Stop"
 # - FLIR_SDK_PYTHON_DIR: FLIR SDK python folder containing setup.py
 # - FLIR_SDK_SHADOW_DIR: shadow dir for wheel build (default: C:\temp\flir_sdk_build)
 
-$AppName = "FirebrandThermalAnalysis"
-$DisplayName = "Firebrand Thermal Analysis"
+$AppName = "Firebrand Thermal Analysis"
 $Entry = "FirebrandThermalAnalysis.py"
 $Python = $env:PYTHON_BIN
 if (-not $Python) { $Python = "python" }
@@ -37,11 +36,4 @@ if ($env:FLIR_SDK_LIB_DIR) { $opts += @("--add-binary","$env:FLIR_SDK_LIB_DIR\\*
 if ($env:FLIR_SDK_BIN_DIR) { $opts += @("--add-binary","$env:FLIR_SDK_BIN_DIR\\*;.") }
 
 & $Python -m PyInstaller @opts
-
-$builtExe = "dist\\$AppName.exe"
-$displayExe = "dist\\$DisplayName.exe"
-if (Test-Path $builtExe) {
-  if (Test-Path $displayExe) { Remove-Item $displayExe -Force }
-  Rename-Item $builtExe $displayExe
-}
-Write-Host "Build output: $displayExe"
+Write-Host "Build output: dist\\$AppName.exe"
