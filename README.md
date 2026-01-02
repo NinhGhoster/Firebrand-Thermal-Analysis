@@ -1,4 +1,4 @@
-# Firebrand Thermal Analysis
+# Firebrand-Thermal-Analysis
 Firebrand Thermal Analysis dashboard for FLIR SEQ files.
 
 ## Highlights

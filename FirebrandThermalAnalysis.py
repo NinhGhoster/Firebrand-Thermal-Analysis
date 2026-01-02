@@ -45,7 +45,7 @@ CENTROID_TRACKING_MAX_DIST = 40
 TRACK_MEMORY_FRAMES = 15
 APP_VERSION = "v0.0.2"
 GITHUB_OWNER = "NinhGhoster"
-GITHUB_REPO = "FirebrandThermalAnalysis"
+GITHUB_REPO = "Firebrand-Thermal-Analysis"
 GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases"
 GITHUB_API_LATEST_URL = (
     f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
@@ -573,7 +573,7 @@ class SKDDashboard(tk.Tk):
         try:
             req = urllib.request.Request(
                 GITHUB_API_LATEST_URL,
-                headers={"User-Agent": "FirebrandThermalAnalysis"},
+                headers={"User-Agent": "Firebrand-Thermal-Analysis"},
             )
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
