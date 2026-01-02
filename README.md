@@ -12,6 +12,7 @@ Firebrand Thermal Analysis dashboard for FLIR SEQ files.
 ## Requirements
 - FLIR Science File SDK installed (see `SDK/` for wheels).
 - Python 3.12 (conda environment recommended).
+- OpenCV via `opencv-python-headless` (included in the conda env).
 
 ## Quick Start
 ```bash

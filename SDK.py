@@ -20,7 +20,7 @@ try:
     print("Successfully imported 'cv2' module.")
 except ImportError:
     print("ERROR: OpenCV library not found.")
-    print("Please install it using: pip install opencv-python")
+    print("Please install it using: pip install opencv-python-headless")
     sys.exit(1)
 
 try:

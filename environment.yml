@@ -7,6 +7,6 @@ dependencies:
   - tk
   - pip:
       - numpy
-      - opencv-python
+      - opencv-python-headless
       - pillow
       - pyinstaller

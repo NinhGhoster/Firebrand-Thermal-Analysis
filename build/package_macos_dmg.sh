@@ -23,5 +23,5 @@ else
 fi
 
 ln -s /Applications "$STAGING/Applications"
-hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING" -ov -format UDZO "$OUT_DMG"
+hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING" -ov -format UDZO -imagekey zlib-level=9 "$OUT_DMG"
 echo "DMG created at: $OUT_DMG"

@@ -2,7 +2,7 @@
 ; Requires Inno Setup (iscc) installed on Windows.
 
 #define MyAppName "FirebrandThermalAnalysis"
-#define MyAppVersion "0.0.1"
+#define MyAppVersion "0.0.2"
 #define MyAppPublisher "H. Nguyen"
 #define MyAppExeName "FirebrandThermalAnalysis.exe"
 

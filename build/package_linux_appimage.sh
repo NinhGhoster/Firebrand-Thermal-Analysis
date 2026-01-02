@@ -43,5 +43,6 @@ Terminal=false
 Categories=Utility;
 EOF
 
+export APPIMAGE_COMPRESS="${APPIMAGE_COMPRESS:-xz}"
 appimagetool "$APPDIR" "$OUT"
 echo "AppImage created at: $OUT"

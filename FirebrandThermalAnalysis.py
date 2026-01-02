@@ -29,7 +29,7 @@ except Exception:
 try:
     import cv2
 except Exception:
-    print("OpenCV required: pip install opencv-python"); sys.exit(1)
+    print("OpenCV required: pip install opencv-python-headless"); sys.exit(1)
 try:
     import fnv
     import fnv.file
@@ -43,7 +43,7 @@ MIN_OBJECT_AREA_PIXELS = 3
 MAX_OBJECT_AREA_PIXELS = 150
 CENTROID_TRACKING_MAX_DIST = 40
 TRACK_MEMORY_FRAMES = 15
-APP_VERSION = "v0.0.1"
+APP_VERSION = "v0.0.2"
 GITHUB_OWNER = "NinhGhoster"
 GITHUB_REPO = "FirebrandThermalAnalysis"
 GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases"
