@@ -8,7 +8,7 @@ APP_NAME_INTERNAL="FirebrandThermalAnalysis"
 APP_NAME_DISPLAY="Firebrand Thermal Analysis"
 DIST_DIR="dist/${APP_NAME_INTERNAL}"
 APPDIR="build/AppDir"
-OUT="dist/${APP_NAME_DISPLAY}.AppImage"
+OUT="dist/${APP_NAME_INTERNAL}.AppImage"
 ICON_NAME="${APP_NAME_INTERNAL}"
 ICON_PATH="${APPDIR}/${ICON_NAME}.png"
 

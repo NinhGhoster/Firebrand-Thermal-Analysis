@@ -28,7 +28,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='Firebrand Thermal Analysis',
+    name='FirebrandThermalAnalysis',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -47,11 +47,11 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='Firebrand Thermal Analysis',
+    name='FirebrandThermalAnalysis',
 )
 app = BUNDLE(
     coll,
-    name='Firebrand Thermal Analysis.app',
+    name='FirebrandThermalAnalysis.app',
     icon=None,
     bundle_identifier=None,
 )

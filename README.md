@@ -122,8 +122,8 @@ PyInstaller is included in `environment.yml`; install it manually if missing.
 The workflow at `.github/workflows/build.yml` builds macOS, Windows, and Linux
 distributions on demand or when you push a tag like `v0.1.0`.
 Artifacts are uploaded to the workflow run and published on releases as
-`Firebrand Thermal Analysis.dmg`, `Firebrand Thermal Analysis.exe`, and
-`Firebrand Thermal Analysis.AppImage`.
+`FirebrandThermalAnalysis.dmg`, `FirebrandThermalAnalysis.exe`, and
+`FirebrandThermalAnalysis.AppImage`.
 
 ### macOS
 ```bash
@@ -137,7 +137,7 @@ Optional env vars:
 ```powershell
 .\build\build_windows.ps1
 ```
-Build output: `dist/Firebrand Thermal Analysis.exe` (single file).
+Build output: `dist/FirebrandThermalAnalysis.exe` (single file).
 Optional env vars:
 - `FLIR_SDK_WHEEL` (preferred) or `FLIR_SDK_PYTHON_DIR` + `FLIR_SDK_SHADOW_DIR`
 - `FLIR_SDK_LIB_DIR` and `FLIR_SDK_BIN_DIR` to bundle SDK DLLs

@@ -8,7 +8,7 @@ APP_NAME_INTERNAL="FirebrandThermalAnalysis"
 APP_NAME_DISPLAY="Firebrand Thermal Analysis"
 DIST_DIR="dist/${APP_NAME_INTERNAL}"
 APP_BUNDLE="dist/${APP_NAME_INTERNAL}.app"
-OUT_DMG="dist/${APP_NAME_DISPLAY}.dmg"
+OUT_DMG="dist/${APP_NAME_INTERNAL}.dmg"
 STAGING="build/_dmg"
 
 rm -rf "$STAGING"

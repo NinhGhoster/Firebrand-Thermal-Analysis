@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 # - FLIR_SDK_PYTHON_DIR: FLIR SDK python folder containing setup.py
 # - FLIR_SDK_SHADOW_DIR: shadow dir for wheel build (default: C:\temp\flir_sdk_build)
 
-$AppName = "Firebrand Thermal Analysis"
+$AppName = "FirebrandThermalAnalysis"
 $Entry = "FirebrandThermalAnalysis.py"
 $Python = $env:PYTHON_BIN
 if (-not $Python) { $Python = "python" }
