@@ -1,10 +1,10 @@
 ; Inno Setup script for Windows installer
 ; Requires Inno Setup (iscc) installed on Windows.
 
-#define MyAppName "FirebrandThermalAnalysis"
+#define MyAppName "Firebrand Thermal Analysis"
 #define MyAppVersion "0.0.2"
 #define MyAppPublisher "H. Nguyen"
-#define MyAppExeName "FirebrandThermalAnalysis.exe"
+#define MyAppExeName "Firebrand Thermal Analysis.exe"
 
 [Setup]
 AppId={{B1E3E4D1-6F66-4F8E-9D9E-0B2F7B19F1B2}

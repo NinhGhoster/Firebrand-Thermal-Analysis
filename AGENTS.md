@@ -22,7 +22,7 @@
 
 ## Build (PyInstaller)
 - macOS: `./build/build_macos.sh`
-- Windows: `.\build\build_windows.ps1` (single-file `dist/FirebrandThermalAnalysis.exe`)
+- Windows: `.\build\build_windows.ps1` (single-file `dist/Firebrand Thermal Analysis.exe`)
 - Linux: `./build/build_linux.sh`
 - GitHub Actions: `.github/workflows/build.yml` (runs on `workflow_dispatch` and `v*` tags)
 - Optional env vars:
