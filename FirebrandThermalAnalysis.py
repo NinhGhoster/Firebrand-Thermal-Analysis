@@ -23,6 +23,17 @@ from collections import OrderedDict
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'libs'))
+try:
+    import customtkinter as ctk
+    ctk.set_appearance_mode("dark")
+    ctk.set_default_color_theme("blue")
+except ImportError:
+    print("customtkinter not found in libs/")
+    sys.exit(1)
+
 try:
     from PIL import Image, ImageTk
 except Exception:
@@ -47,7 +58,18 @@ CENTROID_TRACKING_MAX_DIST = 40
 TRACK_MEMORY_FRAMES = 15
 SUPPORTED_EXTENSIONS = (".seq", ".csq", ".jpg", ".ats", ".sfmov", ".img")
 TARGET_FPS = 30
-APP_VERSION = "v0.0.2"
+COLORMAPS = {
+    "Inferno": cv2.COLORMAP_INFERNO,
+    "Jet": cv2.COLORMAP_JET,
+    "Hot": cv2.COLORMAP_HOT,
+    "Magma": cv2.COLORMAP_MAGMA,
+    "Plasma": cv2.COLORMAP_PLASMA,
+    "Bone": cv2.COLORMAP_BONE,
+    "Turbo": cv2.COLORMAP_TURBO,
+    "Grayscale": None,
+}
+DEFAULT_COLORMAP = "Inferno"
+APP_VERSION = "v0.0.3"
 GITHUB_OWNER = "NinhGhoster"
 GITHUB_REPO = "Firebrand-Thermal-Analysis"
 GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases"
@@ -298,7 +320,7 @@ def _is_newer_version(current: str, latest: str) -> bool:
         return latest_parsed > cur_parsed
     return latest != current
 
-class SKDDashboard(tk.Tk):
+class SKDDashboard(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Firebrand Thermal Analysis")
@@ -331,6 +353,10 @@ class SKDDashboard(tk.Tk):
         self._prefetch_queue: queue.Queue = queue.Queue(maxsize=2)
         self._prefetch_thread: Optional[threading.Thread] = None
         self._prefetch_stop = threading.Event()
+        # Zoom / pan state
+        self._zoom_level: float = 1.0
+        self._pan_offset: List[float] = [0.0, 0.0]
+        self._pan_start: Optional[Tuple[int, int]] = None
         self.var_export_start = tk.IntVar(value=1)
         self.var_export_end = tk.StringVar(value="max")
         self.batch_paths: List[str] = []
@@ -340,289 +366,340 @@ class SKDDashboard(tk.Tk):
         self._bind_events()
         self._reset_tracking()
     def _build_ui(self):
-        # ------- Dark Mode Theme -------
-        BG = "#1e1e1e"
-        FG = "#e0e0e0"
-        BG_LIGHT = "#2d2d2d"
-        BG_ENTRY = "#383838"
-        ACCENT = "#4a9eff"
-        ACCENT_HOVER = "#6cb3ff"
-        MUTED = "#888888"
-        BORDER = "#444444"
-        STATUS_BG = "#161616"
+        # Configure grid for Bento Layout
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=0)
 
-        self.configure(bg=BG)
-        style = ttk.Style(self)
-        try:
-            style.theme_use("clam")
-        except Exception:
-            pass
+        # Typography System
+        font_ui = ("Fira Sans", 13)
+        font_data = ("Fira Code", 13)
 
-        style.configure(".", background=BG, foreground=FG, fieldbackground=BG_ENTRY,
-                         bordercolor=BORDER, troughcolor=BG_LIGHT, arrowcolor=FG)
-        style.configure("TFrame", background=BG)
-        style.configure("TLabel", background=BG, foreground=FG)
-        style.configure("TLabelframe", background=BG, foreground=FG, bordercolor=BORDER)
-        style.configure("TLabelframe.Label", background=BG, foreground=ACCENT)
-        style.configure("TButton", background=BG_LIGHT, foreground=FG,
-                         bordercolor=BORDER, padding=(8, 4))
-        style.map("TButton",
-                  background=[("active", ACCENT), ("pressed", ACCENT_HOVER)],
-                  foreground=[("active", "#ffffff"), ("pressed", "#ffffff")])
-        style.configure("TEntry", fieldbackground=BG_ENTRY, foreground=FG,
-                         insertcolor=FG, bordercolor=BORDER)
-        style.map("TEntry", fieldbackground=[("focus", "#404040")])
-        style.configure("TNotebook", background=BG, bordercolor=BORDER)
-        style.configure("TNotebook.Tab", background=BG_LIGHT, foreground=FG,
-                         padding=(10, 4))
-        style.map("TNotebook.Tab",
-                  background=[("selected", ACCENT)],
-                  foreground=[("selected", "#ffffff")])
-        style.configure("TScrollbar", background=BG_LIGHT, troughcolor=BG,
-                         bordercolor=BG, arrowcolor=FG)
-        style.configure("Horizontal.TScale", background=BG, troughcolor=BG_LIGHT,
-                         bordercolor=BORDER)
-        style.configure("Muted.TLabel", background=BG, foreground=MUTED)
-        style.configure("Status.TLabel", background=STATUS_BG, foreground="#ff8c42",
-                         padding=(6, 2))
-        style.configure("ROI.TNotebook", background=BG, borderwidth=0)
-        style.configure("ROI.TNotebook.Tab", background=BG_LIGHT, foreground=FG,
-                         padding=(10, 2))
-        style.map("ROI.TNotebook.Tab",
-                  background=[("selected", ACCENT)],
-                  foreground=[("selected", "#ffffff")])
-        try:
-            style.layout("ROI.TNotebook", [("Notebook.client", {"sticky": "nswe"})])
-        except Exception:
-            pass
+        # -- Main Content Area (Video) --
+        self.main_panel = ctk.CTkFrame(self, corner_radius=10, fg_color="#0F172A")
+        self.main_panel.grid(row=0, column=0, sticky="nsew", padx=10, pady=(10, 0))
+        
+        self.canvas_frame = ctk.CTkFrame(self.main_panel, fg_color="transparent")
+        self.canvas_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        self.canvas = tk.Canvas(self.canvas_frame, bg="#0F172A", highlightthickness=0)
+        self.canvas.pack(side="left", expand=True, fill="both")
+        
+        self._cbar_width = 30
+        self.cbar_canvas = tk.Canvas(self.canvas_frame, bg="#0F172A", width=self._cbar_width, highlightthickness=0)
+        self.cbar_canvas.pack(side="right", fill="y", padx=(5, 0))
 
-        main_frame = ttk.Frame(self)
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        # -- Bottom Control Pod --
+        self.bottom_pod = ctk.CTkFrame(self, corner_radius=10, height=60, fg_color="#1E293B")
+        self.bottom_pod.grid(row=1, column=0, columnspan=2, sticky="ew", padx=10, pady=10)
+        self.bottom_pod.pack_propagate(False)
 
-        sidebar = ttk.Frame(main_frame, width=340)
-        sidebar.pack(side=tk.LEFT, fill=tk.Y, padx=(10, 6), pady=10)
-        sidebar.pack_propagate(False)
+        ctrl_left = ctk.CTkFrame(self.bottom_pod, fg_color="transparent")
+        ctrl_left.pack(side="left", fill="y", padx=10, pady=10)
+        
+        self.btn_play = ctk.CTkButton(ctrl_left, text="Play", width=60, command=self.on_play_pause, font=font_ui)
+        self.btn_play.pack(side="left", padx=5)
+        self.btn_prev = ctk.CTkButton(ctrl_left, text="<", width=30, command=self.on_prev, font=font_ui)
+        self.btn_prev.pack(side="left", padx=5)
+        self.btn_next = ctk.CTkButton(ctrl_left, text=">", width=30, command=self.on_next, font=font_ui)
+        self.btn_next.pack(side="left", padx=5)
+        
+        self.slider = ctk.CTkSlider(self.bottom_pod, from_=0, to=0, command=self.on_slider)
+        self.slider.pack(side="left", fill="x", expand=True, padx=15, pady=20)
+        
+        self.status = ctk.CTkLabel(self.bottom_pod, text="Status: ready", font=font_data, text_color="#F59E0B")
+        self.status.pack(side="right", padx=15, pady=20)
 
-        content = ttk.Frame(main_frame)
-        content.pack(side=tk.RIGHT, expand=True, fill=tk.BOTH, padx=(6, 10), pady=10)
+        # -- Side Telemetry Panel --
+        self.side_panel = ctk.CTkScrollableFrame(self, width=340, corner_radius=10, fg_color="#0F172A")
+        self.side_panel.grid(row=0, column=1, sticky="ns", padx=(0, 10), pady=(10, 0))
 
-        sidebar_bg = BG
-        self.sidebar_canvas = tk.Canvas(sidebar, highlightthickness=0, bd=0, background=sidebar_bg)
-        self.sidebar_scroll = ttk.Scrollbar(sidebar, orient=tk.VERTICAL, command=self.sidebar_canvas.yview)
-        self.sidebar_canvas.configure(yscrollcommand=self.sidebar_scroll.set)
-        self.sidebar_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.sidebar_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        self.sidebar_inner = ttk.Frame(self.sidebar_canvas)
-        self._sidebar_window_id = self.sidebar_canvas.create_window(
-            (0, 0), window=self.sidebar_inner, anchor="nw"
-        )
-
-        def _on_sidebar_inner_configure(_event):
-            self.sidebar_canvas.configure(scrollregion=self.sidebar_canvas.bbox("all"))
-
-        def _on_sidebar_canvas_configure(event):
-            self.sidebar_canvas.itemconfigure(self._sidebar_window_id, width=event.width)
-
-        self.sidebar_inner.bind("<Configure>", _on_sidebar_inner_configure)
-        self.sidebar_canvas.bind("<Configure>", _on_sidebar_canvas_configure)
-
-        def _is_descendant(widget: Optional[tk.Misc], ancestor: tk.Misc) -> bool:
-            while widget is not None:
-                if widget == ancestor:
-                    return True
-                if widget == self:
-                    return False
-                widget = getattr(widget, "master", None)
-            return False
-
-        def _should_scroll_sidebar(event) -> bool:
-            widget = self.winfo_containing(event.x_root, event.y_root)
-            return _is_descendant(widget, self.sidebar_canvas)
-
-        def _on_mousewheel(event):
-            if not _should_scroll_sidebar(event):
-                return
-            if sys.platform == "darwin":
-                delta = event.delta
-            else:
-                delta = int(event.delta / 120)
-            if delta:
-                self.sidebar_canvas.yview_scroll(-delta, "units")
-
-        def _on_mousewheel_linux(event):
-            if not _should_scroll_sidebar(event):
-                return
-            if event.num == 4:
-                self.sidebar_canvas.yview_scroll(-1, "units")
-            elif event.num == 5:
-                self.sidebar_canvas.yview_scroll(1, "units")
-
-        self.bind_all("<MouseWheel>", _on_mousewheel)
-        self.bind_all("<Button-4>", _on_mousewheel_linux)
-        self.bind_all("<Button-5>", _on_mousewheel_linux)
-
-        # Data source
-        self.file_frame = ttk.LabelFrame(self.sidebar_inner, text="Data source (none)")
-        self.file_frame.pack(fill=tk.X, pady=6)
-        file_row = ttk.Frame(self.file_frame)
-        file_row.pack(fill=tk.X, pady=2)
+        # 1. Data Source
+        ds_frame = ctk.CTkFrame(self.side_panel, corner_radius=8, fg_color="#1E293B")
+        ds_frame.pack(fill="x", pady=(0, 10))
+        ctk.CTkLabel(ds_frame, text="Data Source", font=("Fira Sans", 14, "bold"), text_color="#3B82F6").pack(anchor="w", padx=10, pady=(5,0))
+        ds_btns = ctk.CTkFrame(ds_frame, fg_color="transparent")
+        ds_btns.pack(fill="x", padx=10, pady=10)
+        self.btn_open = ctk.CTkButton(ds_btns, text="Open File/Folder", command=self._show_open_menu, font=font_ui)
+        self.btn_open.pack(fill="x", pady=2)
+        
         self.open_menu = tk.Menu(self, tearoff=0)
         self.open_menu.add_command(label="Open file(s)...", command=self.on_open)
         self.open_menu.add_command(label="Open folder...", command=self.on_open_folder)
-        self.btn_open = ttk.Button(file_row, text="Open", command=self._show_open_menu)
-        self.btn_open.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-        self.btn_prev_file = ttk.Button(file_row, text="<<", command=self.on_prev_file)
-        self.btn_prev_file.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-        self.btn_next_file = ttk.Button(file_row, text=">>", command=self.on_next_file)
-        self.btn_next_file.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        
+        nav_btns = ctk.CTkFrame(ds_frame, fg_color="transparent")
+        nav_btns.pack(fill="x", padx=10, pady=(0,10))
+        self.btn_prev_file = ctk.CTkButton(nav_btns, text="<< Prev", width=110, command=self.on_prev_file, font=font_ui)
+        self.btn_prev_file.pack(side="left", expand=True, padx=(0,5))
+        self.btn_next_file = ctk.CTkButton(nav_btns, text="Next >>", width=110, command=self.on_next_file, font=font_ui)
+        self.btn_next_file.pack(side="right", expand=True, padx=(5,0))
 
-        # Playback
-        playback_frame = ttk.LabelFrame(self.sidebar_inner, text="Playback")
-        playback_frame.pack(fill=tk.X, pady=6)
-        playback = ttk.Frame(playback_frame)
-        playback.pack(fill=tk.X, pady=2)
-        self.btn_play = ttk.Button(playback, text="Play", command=self.on_play_pause)
-        self.btn_play.pack(side=tk.LEFT, padx=1, fill=tk.X, expand=True)
-        self.btn_prev = ttk.Button(playback, text="<", command=self.on_prev)
-        self.btn_prev.pack(side=tk.LEFT, padx=1, fill=tk.X, expand=True)
-        self.btn_next = ttk.Button(playback, text=">", command=self.on_next)
-        self.btn_next.pack(side=tk.LEFT, padx=1, fill=tk.X, expand=True)
+        # 2. Visualisation
+        vis_frame = ctk.CTkFrame(self.side_panel, corner_radius=8, fg_color="#1E293B")
+        vis_frame.pack(fill="x", pady=10)
+        ctk.CTkLabel(vis_frame, text="Visualisation", font=("Fira Sans", 14, "bold"), text_color="#3B82F6").pack(anchor="w", padx=10, pady=(5,0))
+        self.var_colormap = tk.StringVar(value=DEFAULT_COLORMAP)
+        self.cmb_colormap = ctk.CTkComboBox(vis_frame, variable=self.var_colormap, values=list(COLORMAPS.keys()), command=lambda _: self._render_current(), font=font_ui, state="readonly")
+        self.cmb_colormap.pack(fill="x", padx=10, pady=(5,10))
+        zoom_row = ctk.CTkFrame(vis_frame, fg_color="transparent")
+        zoom_row.pack(fill="x", padx=10, pady=(0,10))
+        self.btn_reset_zoom = ctk.CTkButton(zoom_row, text="Reset Zoom", width=100, command=self._reset_zoom, font=font_ui)
+        self.btn_reset_zoom.pack(side="left")
+        self.lbl_zoom = ctk.CTkLabel(zoom_row, text="100%", font=font_data)
+        self.lbl_zoom.pack(side="right")
 
-        # Export settings
-        cfg = ttk.LabelFrame(self.sidebar_inner, text="Export settings")
-        cfg.pack(fill=tk.X, pady=6)
-        cfg_grid = ttk.Frame(cfg)
-        cfg_grid.pack(fill=tk.X, pady=2)
-        cfg_grid.columnconfigure(1, weight=1)
-        ttk.Label(cfg_grid, text="Detection threshold (C):").grid(row=0, column=0, sticky=tk.W, padx=4, pady=2)
+        # 3. Settings
+        exp_frame = ctk.CTkFrame(self.side_panel, corner_radius=8, fg_color="#1E293B")
+        exp_frame.pack(fill="x", pady=10)
+        ctk.CTkLabel(exp_frame, text="Parameters", font=("Fira Sans", 14, "bold"), text_color="#3B82F6").pack(anchor="w", padx=10, pady=(5,0))
+        
+        tr_row = ctk.CTkFrame(exp_frame, fg_color="transparent")
+        tr_row.pack(fill="x", padx=10, pady=2)
+        ctk.CTkLabel(tr_row, text="Detect Thresh:", font=font_ui).pack(side="left")
         self.var_thresh = tk.DoubleVar(value=self.temp_threshold)
-        ttk.Entry(cfg_grid, width=10, textvariable=self.var_thresh).grid(row=0, column=1, sticky=tk.W, padx=4, pady=2)
-        ttk.Label(cfg_grid, text="Metadata emissivity:").grid(row=1, column=0, sticky=tk.W, padx=4, pady=2)
-        self.lbl_meta_emiss = ttk.Label(cfg_grid, text="-")
-        self.lbl_meta_emiss.grid(row=1, column=1, sticky=tk.W, padx=4, pady=2)
-        ttk.Label(cfg_grid, text="Emissivity override:").grid(row=2, column=0, sticky=tk.W, padx=4, pady=2)
+        ctk.CTkEntry(tr_row, textvariable=self.var_thresh, width=80, font=font_data).pack(side="right")
+        
+        em_row = ctk.CTkFrame(exp_frame, fg_color="transparent")
+        em_row.pack(fill="x", padx=10, pady=2)
+        ctk.CTkLabel(em_row, text="Emissivity:", font=font_ui).pack(side="left")
+        self.lbl_meta_emiss = ctk.CTkLabel(em_row, text="-", font=font_data)
+        self.lbl_meta_emiss.pack(side="left", padx=10)
         self.var_emissivity = tk.DoubleVar(value=0.9)
-        self.entry_emissivity = ttk.Entry(cfg_grid, width=10, textvariable=self.var_emissivity)
-        self.entry_emissivity.grid(row=2, column=1, sticky=tk.W, padx=4, pady=2)
+        self.entry_emissivity = ctk.CTkEntry(em_row, textvariable=self.var_emissivity, width=60, font=font_data)
+        self.entry_emissivity.pack(side="right")
 
-        range_frame = ttk.LabelFrame(cfg, text="Export range (frames)")
-        range_frame.pack(fill=tk.X, padx=6, pady=6)
-        rf_row = ttk.Frame(range_frame)
-        rf_row.pack(fill=tk.X, pady=2)
-        ttk.Label(rf_row, text="Start:").pack(side=tk.LEFT)
-        ttk.Entry(rf_row, width=7, textvariable=self.var_export_start).pack(side=tk.LEFT, padx=(2, 8))
+        rng_frame = ctk.CTkFrame(exp_frame, fg_color="transparent")
+        rng_frame.pack(fill="x", padx=10, pady=5)
+        self.var_export_start = tk.IntVar(value=1)
+        self.var_export_end = tk.StringVar(value="max")
+        
+        sr_row = ctk.CTkFrame(rng_frame, fg_color="transparent")
+        sr_row.pack(fill="x", pady=2)
+        ctk.CTkLabel(sr_row, text="Start:", font=font_ui).pack(side="left")
+        ctk.CTkEntry(sr_row, textvariable=self.var_export_start, width=60, font=font_data).pack(side="left", padx=5)
+        self.btn_set_start = ctk.CTkButton(sr_row, text="Set Start", width=70, command=self.set_export_start, font=font_ui)
+        self.btn_set_start.pack(side="right")
 
-        end_note = ttk.Label(range_frame, text='End (type "max" for full length):', style="Muted.TLabel")
-        end_note.pack(anchor=tk.W, pady=(0, 2))
-        end_row = ttk.Frame(range_frame)
-        end_row.pack(fill=tk.X, pady=2)
-        ttk.Label(end_row, text="End:").pack(side=tk.LEFT)
-        ttk.Entry(end_row, width=8, textvariable=self.var_export_end).pack(side=tk.LEFT, padx=(2, 4))
-        rf_btns = ttk.Frame(range_frame)
-        rf_btns.pack(fill=tk.X, pady=2)
-        self.btn_set_start = ttk.Button(rf_btns, text="Set start", command=self.set_export_start)
-        self.btn_set_start.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-        self.btn_set_end = ttk.Button(rf_btns, text="Set end", command=self.set_export_end)
-        self.btn_set_end.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-
-        roi_group = ttk.LabelFrame(cfg, text="Region of Interest")
-        roi_group.pack(fill=tk.X, padx=6, pady=6)
-
-        roi_tabs = ttk.Notebook(roi_group, style="ROI.TNotebook")
-        roi_tabs.pack(fill=tk.X, expand=True)
-
-        # Manual ROI tab
-        manual_tab = ttk.Frame(roi_tabs)
-        roi_tabs.add(manual_tab, text="Manual")
-        roi_fields = ttk.Frame(manual_tab)
-        roi_fields.pack(fill=tk.X, pady=(2, 0))
-        ttk.Label(roi_fields, text="X").pack(side=tk.LEFT)
+        er_row = ctk.CTkFrame(rng_frame, fg_color="transparent")
+        er_row.pack(fill="x", pady=2)
+        ctk.CTkLabel(er_row, text="End:", font=font_ui).pack(side="left", padx=(0,7))
+        ctk.CTkEntry(er_row, textvariable=self.var_export_end, width=60, font=font_data).pack(side="left", padx=5)
+        self.btn_set_end = ctk.CTkButton(er_row, text="Set End", width=70, command=self.set_export_end, font=font_ui)
+        self.btn_set_end.pack(side="right")
+        
+        ctk.CTkLabel(exp_frame, text="ROI Config (x, y, w, h)", font=font_ui).pack(anchor="w", padx=10, pady=(5,0))
+        roi_row = ctk.CTkFrame(exp_frame, fg_color="transparent")
+        roi_row.pack(fill="x", padx=10, pady=2)
         self.var_roi_x = tk.IntVar(value=0)
-        self.entry_roi_x = ttk.Entry(roi_fields, width=5, textvariable=self.var_roi_x)
-        self.entry_roi_x.pack(side=tk.LEFT)
-        ttk.Label(roi_fields, text="Y").pack(side=tk.LEFT)
         self.var_roi_y = tk.IntVar(value=0)
-        self.entry_roi_y = ttk.Entry(roi_fields, width=5, textvariable=self.var_roi_y)
-        self.entry_roi_y.pack(side=tk.LEFT)
-        ttk.Label(roi_fields, text="W").pack(side=tk.LEFT)
         self.var_roi_w = tk.IntVar(value=0)
-        self.entry_roi_w = ttk.Entry(roi_fields, width=5, textvariable=self.var_roi_w)
-        self.entry_roi_w.pack(side=tk.LEFT)
-        ttk.Label(roi_fields, text="H").pack(side=tk.LEFT)
         self.var_roi_h = tk.IntVar(value=0)
-        self.entry_roi_h = ttk.Entry(roi_fields, width=5, textvariable=self.var_roi_h)
-        self.entry_roi_h.pack(side=tk.LEFT)
-        btn_row = ttk.Frame(manual_tab)
-        btn_row.pack(fill=tk.X, pady=2)
-        self.btn_roi_update = ttk.Button(btn_row, text="Apply ROI", command=self.update_roi_from_fields)
-        self.btn_roi_update.pack(side=tk.LEFT, padx=2, pady=1)
-        self.btn_roi_clear = ttk.Button(btn_row, text="Reset ROI", command=self.clear_roi)
-        self.btn_roi_clear.pack(side=tk.LEFT, padx=2, pady=1)
-
-        # Auto ROI tab
-        auto_tab = ttk.Frame(roi_tabs)
-        roi_tabs.add(auto_tab, text="Auto")
-        ttk.Label(auto_tab, text="Detect ROI above fuel bed using first frame.", style="Muted.TLabel").pack(anchor=tk.W, padx=4, pady=(4, 2))
-        auto_row = ttk.Frame(auto_tab)
-        auto_row.pack(fill=tk.X, padx=4, pady=2)
-        ttk.Label(auto_row, text="Margin (px):").pack(side=tk.LEFT)
+        w=60
+        ctk.CTkEntry(roi_row, textvariable=self.var_roi_x, width=w, font=font_data).pack(side="left", padx=2, expand=True)
+        ctk.CTkEntry(roi_row, textvariable=self.var_roi_y, width=w, font=font_data).pack(side="left", padx=2, expand=True)
+        ctk.CTkEntry(roi_row, textvariable=self.var_roi_w, width=w, font=font_data).pack(side="left", padx=2, expand=True)
+        ctk.CTkEntry(roi_row, textvariable=self.var_roi_h, width=w, font=font_data).pack(side="left", padx=2, expand=True)
+        
+        roi_btn_row = ctk.CTkFrame(exp_frame, fg_color="transparent")
+        roi_btn_row.pack(fill="x", padx=10, pady=5)
+        self.btn_roi_update = ctk.CTkButton(roi_btn_row, text="Manual ROI", command=self.update_roi_from_fields, width=120, font=font_ui)
+        self.btn_roi_update.pack(side="left", expand=True, padx=(0,2))
+        self.btn_roi_clear = ctk.CTkButton(roi_btn_row, text="Reset ROI", command=self.clear_roi, width=120, font=font_ui)
+        self.btn_roi_clear.pack(side="right", expand=True, padx=(2,0))
+        
+        auto_row = ctk.CTkFrame(exp_frame, fg_color="transparent")
+        auto_row.pack(fill="x", padx=10, pady=5)
         self.var_auto_margin = tk.IntVar(value=180)
-        ttk.Entry(auto_row, width=6, textvariable=self.var_auto_margin).pack(side=tk.LEFT, padx=(4, 8))
-        self.btn_auto_roi = ttk.Button(auto_tab, text="Auto-detect ROI", command=self.detect_auto_roi)
-        self.btn_auto_roi.pack(fill=tk.X, padx=4, pady=4)
-        self.lbl_auto_result = ttk.Label(auto_tab, text="Auto ROI: (not set)", style="Muted.TLabel")
-        self.lbl_auto_result.pack(anchor=tk.W, padx=4, pady=(0, 4))
+        self.btn_auto_roi = ctk.CTkButton(auto_row, text="Auto Target Fuel", command=self.detect_auto_roi, font=font_ui)
+        self.btn_auto_roi.pack(side="left", expand=True, fill="x")
+        self.lbl_auto_result = ctk.CTkLabel(exp_frame, text="Auto ROI: (not set)", text_color="gray", font=font_data)
+        self.lbl_auto_result.pack(anchor="w", padx=10, pady=(0,10))
 
-        apply_row = ttk.Frame(cfg)
-        apply_row.pack(fill=tk.X, pady=(0, 4))
-        self.btn_apply_current = ttk.Button(apply_row, text="Apply to current file", command=self.apply_current_settings)
-        self.btn_apply_current.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-        self.btn_apply_all = ttk.Button(apply_row, text="Apply all", command=self.apply_current_settings_all)
-        self.btn_apply_all.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        act_row = ctk.CTkFrame(exp_frame, fg_color="transparent")
+        act_row.pack(fill="x", padx=10, pady=(0,10))
+        self.btn_apply_current = ctk.CTkButton(act_row, text="Apply File", command=self.apply_current_settings, width=120, font=font_ui)
+        self.btn_apply_current.pack(side="left", expand=True, padx=(0,2))
+        self.btn_apply_all = ctk.CTkButton(act_row, text="Apply All", command=self.apply_current_settings_all, width=120, font=font_ui)
+        self.btn_apply_all.pack(side="right", expand=True, padx=(2,0))
+        
+        # 4. Exports
+        exp_mod = ctk.CTkFrame(self.side_panel, corner_radius=8, fg_color="#1E293B")
+        exp_mod.pack(fill="x", pady=10)
+        self.btn_export_menu = ctk.CTkButton(exp_mod, text="Export Actions...", command=self.show_export_menu, font=("Fira Sans", 14, "bold"), height=40)
+        self.btn_export_menu.pack(fill="x", padx=10, pady=10)
+
+        # 5. Footer (Credits & Updates)
+        footer_frame = ctk.CTkFrame(self.side_panel, corner_radius=8, fg_color="#1E293B")
+        footer_frame.pack(fill="x", pady=10)
+        ctk.CTkLabel(
+            footer_frame,
+            text=f"Developed by H. Nguyen, J. Filippi, T. Penman, M. Peace, A. Filkov ({APP_VERSION})",
+            font=("Fira Sans", 11),
+            text_color="gray",
+        ).pack(anchor="w", padx=10, pady=(8, 2))
+        ctk.CTkButton(
+            footer_frame,
+            text="Check for updates",
+            command=self.on_check_updates,
+            font=("Fira Sans", 12),
+            height=30,
+        ).pack(fill="x", padx=10, pady=(2, 8))
+
+        # Triggers for labels
         self._update_apply_labels()
-
-        # Export actions
-        export_frame = ttk.LabelFrame(self.sidebar_inner, text="Export")
-        export_frame.pack(fill=tk.X, pady=6)
-        self.btn_export_menu = ttk.Button(export_frame, text="Export...", command=self.show_export_menu)
-        self.btn_export_menu.pack(fill=tk.X, pady=2)
-
-        footer = ttk.Frame(self.sidebar_inner)
-        footer.pack(fill=tk.X, pady=(8, 0))
-        ttk.Label(
-            footer,
-            text=f"Developed from FLIR SDK by H. Nguyen ({APP_VERSION})",
-            style="Muted.TLabel",
-        ).pack(anchor=tk.W)
-        ttk.Button(footer, text="Check for updates", command=self.on_check_updates).pack(anchor=tk.W, fill=tk.X, pady=(2, 0))
-
-        # Image/canvas
-        canvas_frame = ttk.Frame(content)
-        canvas_frame.pack(fill=tk.BOTH, expand=True)
-        self.canvas = tk.Canvas(canvas_frame, bg="#222222", highlightthickness=0)
-        self.canvas.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
-        # Status bar (kept at very bottom)
-        self.status = ttk.Label(self, text="Status: ready", anchor=tk.W, style="Status.TLabel")
-        self.status.pack(side=tk.BOTTOM, fill=tk.X)
-
-        slider_bar = ttk.Frame(self)
-        slider_bar.pack(side=tk.BOTTOM, fill=tk.X)
-        self.slider = ttk.Scale(slider_bar, from_=0, to=0, orient=tk.HORIZONTAL, command=self.on_slider)
-        self.slider.pack(fill=tk.X, padx=2, pady=4)
+        self._update_range_button_labels()
     def _bind_events(self):
+        def _guarded(fn):
+            def wrapper(e):
+                w = self.focus_get()
+                if isinstance(w, (ctk.CTkEntry, ctk.CTkComboBox, tk.Entry, ttk.Entry, ttk.Combobox)):
+                    return
+                fn()
+            return wrapper
+
         # Global bindings so space toggles play/pause even when focus is on inputs
         self.bind_all("<Key-space>", lambda e: self.on_play_pause())
-        self.bind("s", lambda e: self.on_stop())
+        self.bind("s", _guarded(self.on_stop))
         self.bind("<Key-Right>", lambda e: self.on_next())
         self.bind("<Key-Left>", lambda e: self.on_prev())
         self.bind("<Key-period>", lambda e: self.on_next())
         self.bind("<Key-comma>", lambda e: self.on_prev())
+        # Jump to first / last frame
+        self.bind("<Home>", lambda e: self._jump_to_frame(0))
+        self.bind("<End>", lambda e: self._jump_to_frame(max(0, self.num_frames - 1)))
+        # Zoom keyboard shortcuts  (+/- and 0 for reset)
+        self.bind("<Key-plus>", lambda e: self._keyboard_zoom(1.2))
+        self.bind("<Key-equal>", lambda e: self._keyboard_zoom(1.2))
+        self.bind("<Key-minus>", lambda e: self._keyboard_zoom(1.0 / 1.2))
+        self.bind("<Key-0>", lambda e: self._reset_zoom())
+        # Colormap quick-select (keys 1-8)
+        cmap_names = list(COLORMAPS.keys())
+        for i, name in enumerate(cmap_names[:8]):
+            self.bind(str(i + 1), lambda e, n=name: self._set_colormap(n))
+        # ROI reset
+        self.bind("r", _guarded(self.clear_roi))
+        # Fullscreen toggle
+        self.bind("f", _guarded(self._toggle_fullscreen))
+        self.bind("<Escape>", lambda e: self._exit_fullscreen())
+        # Canvas events
         self.canvas.bind("<Button-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
         self.canvas.bind("<Motion>", self.on_mouse_move)
         self.canvas.bind("<Configure>", self.on_canvas_resize)
+        # Zoom (scroll wheel) and pan (middle-click drag)
+        self.canvas.bind("<Button-2>", self._on_pan_start)
+        self.canvas.bind("<B2-Motion>", self._on_pan_drag)
+        self.canvas.bind("<Double-Button-1>", lambda e: self._reset_zoom())
+
+    # ---- Zoom / Pan ----
+    def _on_zoom(self, event):
+        """Handle mouse wheel zoom on canvas."""
+        if self._last_frame is None:
+            return
+        # Determine scroll direction
+        if event.num == 4 or (hasattr(event, "delta") and event.delta > 0):
+            factor = 1.15
+        elif event.num == 5 or (hasattr(event, "delta") and event.delta < 0):
+            factor = 1.0 / 1.15
+        else:
+            return
+        new_zoom = self._zoom_level * factor
+        new_zoom = max(0.5, min(new_zoom, 10.0))
+        if new_zoom != self._zoom_level:
+            # Adjust pan so zoom is centred on cursor
+            cx, cy = event.x, event.y
+            self._pan_offset[0] = cx - (cx - self._pan_offset[0]) * (new_zoom / self._zoom_level)
+            self._pan_offset[1] = cy - (cy - self._pan_offset[1]) * (new_zoom / self._zoom_level)
+            self._zoom_level = new_zoom
+            self.lbl_zoom.configure(text=f"{int(new_zoom * 100)}%")
+            self._render_current()
+
+    def _on_pan_start(self, event):
+        """Record starting position for middle-click pan."""
+        self._pan_start = (event.x, event.y)
+
+    def _on_pan_drag(self, event):
+        """Pan the canvas view via middle-click drag."""
+        if self._pan_start is None:
+            return
+        dx = event.x - self._pan_start[0]
+        dy = event.y - self._pan_start[1]
+        self._pan_offset[0] += dx
+        self._pan_offset[1] += dy
+        self._pan_start = (event.x, event.y)
+        self._render_current()
+
+    def _reset_zoom(self):
+        """Reset zoom and pan to defaults."""
+        self._zoom_level = 1.0
+        self._pan_offset = [0.0, 0.0]
+        self._pan_start = None
+        self.lbl_zoom.configure(text="100%")
+        self._render_current()
+
+    def _keyboard_zoom(self, factor: float):
+        """Apply zoom factor from keyboard shortcut."""
+        new_zoom = max(0.5, min(self._zoom_level * factor, 10.0))
+        if new_zoom != self._zoom_level:
+            self._zoom_level = new_zoom
+            self.lbl_zoom.configure(text=f"{int(new_zoom * 100)}%")
+            self._render_current()
+
+    def _set_colormap(self, name: str):
+        """Switch colormap by name (for keyboard shortcuts)."""
+        if name in COLORMAPS:
+            self.var_colormap.set(name)
+            self._render_current()
+
+    def _jump_to_frame(self, idx: int):
+        """Jump to a specific frame index."""
+        if self.im is None:
+            return
+        self.current_idx = max(0, min(idx, self.num_frames - 1))
+        self._render_current()
+
+    def _toggle_fullscreen(self):
+        """Toggle fullscreen mode."""
+        is_fs = self.attributes("-fullscreen")
+        self.attributes("-fullscreen", not is_fs)
+
+    def _exit_fullscreen(self):
+        """Exit fullscreen mode."""
+        self.attributes("-fullscreen", False)
+
+
+    def _draw_color_bar(self, tmin: float, tmax: float):
+        """Draw the temperature gradient color bar alongside the canvas."""
+        h = self.cbar_canvas.winfo_height()
+        if h < 20:
+            return
+        cmap_name = self.var_colormap.get()
+        # Cache: only rebuild gradient image if colormap or height changed
+        cache_key = (cmap_name, h)
+        if getattr(self, '_cbar_cache_key', None) != cache_key:
+            cmap_id = COLORMAPS.get(cmap_name)
+            bar_w = self._cbar_width
+            # Build gradient in one vectorized pass
+            gradient = np.linspace(255, 0, h, dtype=np.uint8).reshape(h, 1)
+            gradient = np.repeat(gradient, bar_w, axis=1)
+            if cmap_id is not None:
+                bar_bgr = cv2.applyColorMap(gradient, cmap_id)
+            else:
+                bar_bgr = cv2.cvtColor(gradient, cv2.COLOR_GRAY2BGR)
+            bar_rgb = cv2.cvtColor(bar_bgr, cv2.COLOR_BGR2RGB)
+            self._cbar_pil = Image.fromarray(bar_rgb)
+            self._cbar_cache_key = cache_key
+        # Draw cached image + labels
+        self.cbar_canvas.delete("all")
+        self._cbar_tk = ImageTk.PhotoImage(self._cbar_pil)
+        self.cbar_canvas.create_image(0, 0, image=self._cbar_tk, anchor=tk.NW)
+        bar_w = self._cbar_width
+        self.cbar_canvas.create_text(bar_w // 2, 10, text=f"{tmax:.0f}\u00b0",
+                                     fill="white", font=("TkDefaultFont", 8))
+        self.cbar_canvas.create_text(bar_w // 2, h - 10, text=f"{tmin:.0f}\u00b0",
+                                     fill="white", font=("TkDefaultFont", 8))
+
     def on_check_updates(self):
         try:
             req = urllib.request.Request(
@@ -1176,14 +1253,19 @@ class SKDDashboard(tk.Tk):
         else:
             self.var_roi_x.set(0); self.var_roi_y.set(0); self.var_roi_w.set(self.width); self.var_roi_h.set(self.height)
     def _canvas_to_image(self, cx: int, cy: int) -> Tuple[int,int]:
-        bbox = self.canvas.bbox("img");
-        if not bbox: return 0, 0
-        x0, y0, x1, y1 = bbox
-        draw_w = max(1, x1 - x0); draw_h = max(1, y1 - y0)
-        if self.width == 0 or self.height == 0: return 0, 0
-        xi = int((cx - x0) * self.width / draw_w)
-        yi = int((cy - y0) * self.height / draw_h)
-        xi = max(0, min(self.width-1, xi)); yi = max(0, min(self.height-1, yi))
+        if self.width == 0 or self.height == 0:
+            return 0, 0
+        disp_w, disp_h = self._fit_display_size()
+        if disp_w <= 0 or disp_h <= 0:
+            return 0, 0
+        base_scale = min(disp_w / self.width, disp_h / self.height)
+        total_scale = base_scale * self._zoom_level
+        if total_scale <= 0:
+            return 0, 0
+        xi = int((cx - self._pan_offset[0]) / total_scale)
+        yi = int((cy - self._pan_offset[1]) / total_scale)
+        xi = max(0, min(self.width - 1, xi))
+        yi = max(0, min(self.height - 1, yi))
         return xi, yi
     def _detect_firebrands(self, frame: np.ndarray, roi: Optional[Tuple[int,int,int,int]], temp_thresh: float):
         roi = clamp_roi(roi, self.width, self.height)
@@ -1255,7 +1337,18 @@ class SKDDashboard(tk.Tk):
             self.after(delay_ms, self._play_loop)
             return
         self._last_frame_time = now
-        self.current_idx += 1
+        # Try using a prefetched frame
+        prefetched = False
+        try:
+            pf_idx, pf_frame = self._prefetch_queue.get_nowait()
+            if pf_idx == self.current_idx + 1:
+                self.current_idx = pf_idx
+                self._last_frame = pf_frame
+                prefetched = True
+            else:
+                self.current_idx += 1
+        except queue.Empty:
+            self.current_idx += 1
         if self.current_idx >= self.num_frames:
             self.current_idx = self.num_frames - 1
             self.playing = False
@@ -1274,9 +1367,19 @@ class SKDDashboard(tk.Tk):
             roi = self.roi_rect
             temp_thresh = float(self.var_thresh.get())
             detections = self._get_tracked_detections(self.current_idx, frame, roi, temp_thresh, update_tracker=True)
-            vis = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX)
-            vis = np.clip(vis, 0, 255).astype(np.uint8)
-            vis = cv2.cvtColor(vis, cv2.COLOR_GRAY2BGR)
+
+            # --- Colormap rendering ---
+            tmin, tmax = float(np.min(frame)), float(np.max(frame))
+            norm = np.empty_like(frame, dtype=np.uint8)
+            cv2.normalize(frame, norm, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            cmap_name = self.var_colormap.get()
+            cmap_id = COLORMAPS.get(cmap_name)
+            if cmap_id is not None:
+                vis = cv2.applyColorMap(norm, cmap_id)
+            else:
+                vis = cv2.cvtColor(norm, cv2.COLOR_GRAY2BGR)
+
+            # --- Detections / ROI overlay ---
             if roi:
                 rx, ry, rw, rh = roi
                 cv2.rectangle(vis, (rx, ry), (rx+rw, ry+rh), (0,255,0), 1)
@@ -1286,11 +1389,35 @@ class SKDDashboard(tk.Tk):
                 cv2.circle(vis, (cx, cy), 3, (255,255,255), -1)
                 prefix = "Detect" if d.get('new_track') else "Tracking"
                 cv2.putText(vis, f"{prefix}: {d['max_temp']:.1f}{self.unit_label}", (x, max(0, y-3)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+
+            # --- Zoom / Pan ---
             disp_w, disp_h = self._fit_display_size()
-            vis_for_canvas = vis
-            if disp_w > 0 and disp_h > 0 and (disp_w != vis.shape[1] or disp_h != vis.shape[0]):
-                interp = cv2.INTER_AREA if disp_w < vis.shape[1] or disp_h < vis.shape[0] else cv2.INTER_LINEAR
-                vis_for_canvas = cv2.resize(vis, (disp_w, disp_h), interpolation=interp)
+            if disp_w > 0 and disp_h > 0:
+                fh, fw = vis.shape[:2]
+                base_scale = min(disp_w / fw, disp_h / fh) if fw > 0 and fh > 0 else 1.0
+                no_zoom = abs(self._zoom_level - 1.0) < 0.01
+                no_pan = abs(self._pan_offset[0]) < 1 and abs(self._pan_offset[1]) < 1
+                if no_zoom and no_pan:
+                    # Fast path: simple resize
+                    target_w = int(fw * base_scale)
+                    target_h = int(fh * base_scale)
+                    if target_w != fw or target_h != fh:
+                        interp = cv2.INTER_AREA if target_w < fw else cv2.INTER_LINEAR
+                        vis_for_canvas = cv2.resize(vis, (target_w, target_h), interpolation=interp)
+                    else:
+                        vis_for_canvas = vis
+                else:
+                    total_scale = base_scale * self._zoom_level
+                    M = np.float32([
+                        [total_scale, 0, self._pan_offset[0]],
+                        [0, total_scale, self._pan_offset[1]],
+                    ])
+                    vis_for_canvas = cv2.warpAffine(vis, M, (disp_w, disp_h),
+                                                    borderMode=cv2.BORDER_CONSTANT,
+                                                    borderValue=(30, 30, 30))
+            else:
+                vis_for_canvas = vis
+
             img_rgb = cv2.cvtColor(vis_for_canvas, cv2.COLOR_BGR2RGB)
             drawn = False
             if Image is not None and ImageTk is not None:
@@ -1322,6 +1449,12 @@ class SKDDashboard(tk.Tk):
             if not self._export_in_progress:
                 self.status.configure(text=self._base_status)
             self._update_range_button_labels()
+            # Update colour bar (skip during active playback for performance)
+            if not self.playing:
+                try:
+                    self._draw_color_bar(tmin, tmax)
+                except Exception:
+                    pass
         except Exception:
             traceback.print_exc()
     def export_frame(self):
@@ -1335,9 +1468,16 @@ class SKDDashboard(tk.Tk):
             roi = self.roi_rect
             temp_thresh = float(self.var_thresh.get())
             detections = self._get_tracked_detections(self.current_idx, frame, roi, temp_thresh, update_tracker=False)
-            vis = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX)
-            vis = np.clip(vis, 0, 255).astype(np.uint8)
-            vis = cv2.cvtColor(vis, cv2.COLOR_GRAY2BGR)
+            # Apply colormap
+            tmin, tmax = float(np.min(frame)), float(np.max(frame))
+            denom = tmax - tmin if tmax > tmin else 1.0
+            norm = ((frame - tmin) / denom * 255).astype(np.uint8)
+            cmap_name = self.var_colormap.get()
+            cmap_id = COLORMAPS.get(cmap_name)
+            if cmap_id is not None:
+                vis = cv2.applyColorMap(norm, cmap_id)
+            else:
+                vis = cv2.cvtColor(norm, cv2.COLOR_GRAY2BGR)
             if roi:
                 rx, ry, rw, rh = roi
                 cv2.rectangle(vis, (rx, ry), (rx+rw, ry+rh), (0,255,0), 1)

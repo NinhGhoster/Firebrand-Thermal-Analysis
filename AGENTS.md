@@ -3,12 +3,16 @@
 ## Project Overview
 - Firebrand Thermal Analysis dashboard for FLIR SDK radiometric files (SEQ, CSQ, JPG, ATS, SFMOV, IMG).
 - Primary entry point: `FirebrandThermalAnalysis.py`.
+- UI/UX based on **CustomTkinter** featuring a Bento Grid layout and deep dark mode.
 - Packaged outputs are generated under `dist/` (ignored) and build artifacts under `build/`.
 - Support modules: `SDK.py` and `tutorial/` examples.
+- Thermal colormaps: Inferno (default), Jet, Hot, Magma, Plasma, Bone, Turbo, Grayscale.
+- Canvas supports zoom (scroll / +/-), pan (middle-drag), and hover temperature readout.
+- Color bar displays temperature-to-color gradient alongside the canvas.
 
 ## Setup
 - Install FLIR SDK from `SDK/`.
-- Create environment: `conda env create -f environment.yml`.
+- Create environment: `conda env create -f environment.yml` (includes `customtkinter`).
 - Activate: `conda activate firebrand-thermal`.
 - Install SDK wheel (per OS) from `SDK/`.
 - Linux: if using the SDK installer, build a wheel from the installed SDK Python dir.
@@ -37,8 +41,27 @@
 
 ## Lint/Test
 - Syntax: `python -m py_compile *.py`
+- Tests: `python -m pytest tests/ -v`
 - Optional: `flake8`, `black --check`, `mypy *.py`
-- No unit tests; validate GUIs by running them and checking for errors.
+
+## Keyboard Shortcuts
+| Key | Action |
+|---|---|
+| `Space` | Play / Pause |
+| `S` | Stop |
+| `Left` / `,` | Previous frame |
+| `Right` / `.` | Next frame |
+| `Home` | Jump to first frame |
+| `End` | Jump to last frame |
+| `+` / `-` | Zoom in / out |
+| `0` | Reset zoom |
+| `1`–`8` | Quick-select colormap |
+| `R` | Reset ROI |
+| `F` | Toggle fullscreen |
+| `Escape` | Exit fullscreen |
+| `Double-click` | Reset zoom |
+| `Scroll wheel` | Zoom on cursor |
+| `Middle-drag` | Pan view |
 
 ## Behavioral Expectations
 - Frame numbers in UI/CSV are 1-based.
@@ -47,6 +70,8 @@
 - CSV export saves next to the SEQ with the same base name.
 - Export CSV (all files) runs in parallel across files.
 - Status text is prefixed with `Status:` for quick scanning.
+- Color bar gradient updates when paused; skipped during playback for performance.
+- Single-char shortcuts are suppressed when focus is in an Entry/Combobox.
 
 ## Code Style Guidelines
 - **Imports**: Group stdlib, third-party, local; try/except for optional imports (PIL, cv2, fnv).

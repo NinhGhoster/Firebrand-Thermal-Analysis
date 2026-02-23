@@ -7,7 +7,10 @@ Firebrand Thermal Analysis dashboard for FLIR radiometric files (SEQ, CSQ, JPG, 
 - 1-based start/end trim with `max` to use each file's full length.
 - Per-detection stats: max/min/avg/median temperature, area, and bbox.
 - Export current frame to JPG with ROI and detection overlays.
-- Keyboard shortcuts for playback and frame stepping.
+- Thermal colormaps (Inferno, Jet, Hot, Magma, Plasma, Bone, Turbo, Grayscale).
+- Interactive zoom & pan with mouse hover temperature readout.
+- Color bar showing temperature-to-color gradient.
+- Comprehensive keyboard shortcuts for playback, zoom, colormaps, and fullscreen.
 
 ## Requirements
 - FLIR Science File SDK installed (see `SDK/` for wheels).
@@ -91,6 +94,34 @@ conda env update -f environment.yml --prune
 6) Controls & shortcuts  
    - |< rewind, > play/pause, < / >> step, space/arrow/comma/period keys for stepping, slider for scrubbing.  
    - Apply to `<file>` saves settings per file; Apply all propagates to all loaded files.
+
+### Visualisation & Interface
+- **Modern Interface**: Deep dark mode UI powered by CustomTkinter featuring a sleek Bento Grid layout.
+- **Colormaps**: select from the Visualisation dropdown (Inferno, Jet, Hot, Magma, Plasma, Bone, Turbo, Grayscale), or press `1`–`8` to quick-select.
+- **Zoom**: scroll wheel zooms 0.5×–10× centred on cursor; `+`/`-` keys zoom in/out; `0` or double-click resets.
+- **Pan**: middle-click drag pans the view.
+- **Temperature readout**: hover over the canvas to see the temperature at the cursor in the status bar.
+- **Color bar**: gradient strip to the right of the canvas showing the current colormap with min / max temperature labels.
+- **Fullscreen**: press `F` to toggle fullscreen, `Escape` to exit.
+
+### Keyboard Shortcuts
+| Key | Action |
+|---|---|
+| `Space` | Play / Pause |
+| `S` | Stop |
+| `←` / `,` | Previous frame |
+| `→` / `.` | Next frame |
+| `Home` | Jump to first frame |
+| `End` | Jump to last frame |
+| `+` / `-` | Zoom in / out |
+| `0` | Reset zoom |
+| `1`–`8` | Quick-select colormap |
+| `R` | Reset ROI |
+| `F` | Toggle fullscreen |
+| `Escape` | Exit fullscreen |
+| `Double-click` | Reset zoom |
+| `Scroll wheel` | Zoom on cursor |
+| `Middle-drag` | Pan view |
 
 ## CSV Schema
 Each row is one detected firebrand in a frame.
@@ -183,6 +214,7 @@ The script generates a default 256x256 icon for AppImage metadata.
 - `SDK/`: FLIR SDK installers and wheels.
 - `build/`: platform build scripts and packaging helpers.
 - `dist/`: packaged outputs (generated/ignored).
+- `tests/`: unit tests (`pytest`).
 - `tutorial/`: SDK usage examples.
 
 ## Credits

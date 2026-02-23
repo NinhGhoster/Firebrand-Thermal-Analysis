@@ -6,6 +6,11 @@
       "sourceType": "github",
       "computedHash": "7437cac5798603b94ce1019fa701c659a3deddcfc8c482a3ac42b8bcb65f6d4e"
     },
+    "computer-vision-opencv": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "computedHash": "07d2f35a381b86991164e77833f661e55420a92c8d879473b504dce1fc945af5"
+    },
     "error-handling-patterns": {
       "source": "wshobson/agents",
       "sourceType": "github",
@@ -45,6 +50,11 @@
       "source": "obra/superpowers",
       "sourceType": "github",
       "computedHash": "126f1ebf6ccd414f42544f6e83d8cc5adb089e1108eaffb7c400701e37eecd9f"
+    },
+    "ui-ux-pro-max": {
+      "source": "nextlevelbuilder/ui-ux-pro-max-skill",
+      "sourceType": "github",
+      "computedHash": "e688fcd4c5693e14ebd00d48e982dbd2be060fbea89f5f60531e79c704a1bc28"
     }
   }
 }
