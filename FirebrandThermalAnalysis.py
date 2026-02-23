@@ -404,7 +404,7 @@ class SKDDashboard(ctk.CTk):
         self.btn_next = ctk.CTkButton(ctrl_left, text=">", width=30, command=self.on_next, font=font_ui)
         self.btn_next.pack(side="left", padx=5)
         
-        self.slider = ctk.CTkSlider(self.bottom_pod, from_=0, to=0, command=self.on_slider)
+        self.slider = ctk.CTkSlider(self.bottom_pod, from_=0, to=1, number_of_steps=1, command=self.on_slider)
         self.slider.pack(side="left", fill="x", expand=True, padx=15, pady=20)
         
         self.status = ctk.CTkLabel(self.bottom_pod, text="Status: ready", font=font_data, text_color="#F59E0B")
@@ -536,6 +536,8 @@ class SKDDashboard(ctk.CTk):
             text=f"Developed by H. Nguyen, J. Filippi, T. Penman, M. Peace, A. Filkov ({APP_VERSION})",
             font=("Fira Sans", 11),
             text_color="gray",
+            wraplength=280,
+            justify="left",
         ).pack(anchor="w", padx=10, pady=(8, 2))
         ctk.CTkButton(
             footer_frame,
