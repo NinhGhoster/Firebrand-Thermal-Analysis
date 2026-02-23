@@ -10,8 +10,10 @@ import csv
 import json
 import multiprocessing
 import os
+import queue
 import sys
 import threading
+import time
 import traceback
 import urllib.request
 import webbrowser
@@ -43,6 +45,8 @@ MIN_OBJECT_AREA_PIXELS = 3
 MAX_OBJECT_AREA_PIXELS = 150
 CENTROID_TRACKING_MAX_DIST = 40
 TRACK_MEMORY_FRAMES = 15
+SUPPORTED_EXTENSIONS = (".seq", ".csq", ".jpg", ".ats", ".sfmov", ".img")
+TARGET_FPS = 30
 APP_VERSION = "v0.0.2"
 GITHUB_OWNER = "NinhGhoster"
 GITHUB_REPO = "Firebrand-Thermal-Analysis"
@@ -323,6 +327,10 @@ class SKDDashboard(tk.Tk):
         self._base_status = "Status: ready"
         self._export_in_progress = False
         self._export_thread: Optional[threading.Thread] = None
+        self._last_frame_time: float = 0.0
+        self._prefetch_queue: queue.Queue = queue.Queue(maxsize=2)
+        self._prefetch_thread: Optional[threading.Thread] = None
+        self._prefetch_stop = threading.Event()
         self.var_export_start = tk.IntVar(value=1)
         self.var_export_end = tk.StringVar(value="max")
         self.batch_paths: List[str] = []
@@ -332,11 +340,57 @@ class SKDDashboard(tk.Tk):
         self._bind_events()
         self._reset_tracking()
     def _build_ui(self):
+        # ------- Dark Mode Theme -------
+        BG = "#1e1e1e"
+        FG = "#e0e0e0"
+        BG_LIGHT = "#2d2d2d"
+        BG_ENTRY = "#383838"
+        ACCENT = "#4a9eff"
+        ACCENT_HOVER = "#6cb3ff"
+        MUTED = "#888888"
+        BORDER = "#444444"
+        STATUS_BG = "#161616"
+
+        self.configure(bg=BG)
         style = ttk.Style(self)
-        style.configure("Muted.TLabel", foreground="#666666")
-        style.configure("Status.TLabel", padding=(6, 2))
-        style.configure("ROI.TNotebook", borderwidth=0)
-        style.configure("ROI.TNotebook.Tab", padding=(10, 2))
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
+
+        style.configure(".", background=BG, foreground=FG, fieldbackground=BG_ENTRY,
+                         bordercolor=BORDER, troughcolor=BG_LIGHT, arrowcolor=FG)
+        style.configure("TFrame", background=BG)
+        style.configure("TLabel", background=BG, foreground=FG)
+        style.configure("TLabelframe", background=BG, foreground=FG, bordercolor=BORDER)
+        style.configure("TLabelframe.Label", background=BG, foreground=ACCENT)
+        style.configure("TButton", background=BG_LIGHT, foreground=FG,
+                         bordercolor=BORDER, padding=(8, 4))
+        style.map("TButton",
+                  background=[("active", ACCENT), ("pressed", ACCENT_HOVER)],
+                  foreground=[("active", "#ffffff"), ("pressed", "#ffffff")])
+        style.configure("TEntry", fieldbackground=BG_ENTRY, foreground=FG,
+                         insertcolor=FG, bordercolor=BORDER)
+        style.map("TEntry", fieldbackground=[("focus", "#404040")])
+        style.configure("TNotebook", background=BG, bordercolor=BORDER)
+        style.configure("TNotebook.Tab", background=BG_LIGHT, foreground=FG,
+                         padding=(10, 4))
+        style.map("TNotebook.Tab",
+                  background=[("selected", ACCENT)],
+                  foreground=[("selected", "#ffffff")])
+        style.configure("TScrollbar", background=BG_LIGHT, troughcolor=BG,
+                         bordercolor=BG, arrowcolor=FG)
+        style.configure("Horizontal.TScale", background=BG, troughcolor=BG_LIGHT,
+                         bordercolor=BORDER)
+        style.configure("Muted.TLabel", background=BG, foreground=MUTED)
+        style.configure("Status.TLabel", background=STATUS_BG, foreground="#ff8c42",
+                         padding=(6, 2))
+        style.configure("ROI.TNotebook", background=BG, borderwidth=0)
+        style.configure("ROI.TNotebook.Tab", background=BG_LIGHT, foreground=FG,
+                         padding=(10, 2))
+        style.map("ROI.TNotebook.Tab",
+                  background=[("selected", ACCENT)],
+                  foreground=[("selected", "#ffffff")])
         try:
             style.layout("ROI.TNotebook", [("Notebook.client", {"sticky": "nswe"})])
         except Exception:
@@ -352,7 +406,7 @@ class SKDDashboard(tk.Tk):
         content = ttk.Frame(main_frame)
         content.pack(side=tk.RIGHT, expand=True, fill=tk.BOTH, padx=(6, 10), pady=10)
 
-        sidebar_bg = style.lookup("TFrame", "background") or self.cget("bg")
+        sidebar_bg = BG
         self.sidebar_canvas = tk.Canvas(sidebar, highlightthickness=0, bd=0, background=sidebar_bg)
         self.sidebar_scroll = ttk.Scrollbar(sidebar, orient=tk.VERTICAL, command=self.sidebar_canvas.yview)
         self.sidebar_canvas.configure(yscrollcommand=self.sidebar_scroll.set)
@@ -414,7 +468,7 @@ class SKDDashboard(tk.Tk):
         file_row = ttk.Frame(self.file_frame)
         file_row.pack(fill=tk.X, pady=2)
         self.open_menu = tk.Menu(self, tearoff=0)
-        self.open_menu.add_command(label="Open SEQ file(s)...", command=self.on_open)
+        self.open_menu.add_command(label="Open file(s)...", command=self.on_open)
         self.open_menu.add_command(label="Open folder...", command=self.on_open_folder)
         self.btn_open = ttk.Button(file_row, text="Open", command=self._show_open_menu)
         self.btn_open.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
@@ -741,7 +795,7 @@ class SKDDashboard(tk.Tk):
         if self._export_in_progress:
             return
         if self.im is None:
-            messagebox.showerror("Auto ROI", "Open a SEQ file first.")
+            messagebox.showerror("Auto ROI", "Open a file first.")
             return
         try:
             self.im.get_frame(0)
@@ -836,13 +890,16 @@ class SKDDashboard(tk.Tk):
         if path_override:
             self._load_seq(path_override, reset_settings=False)
             return
-        paths = filedialog.askopenfilenames(title="Select SEQ file(s)", filetypes=[("SEQ Files","*.seq"), ("All Files","*.*")])
-        seq_paths = [p for p in paths if str(p).lower().endswith(".seq")] if paths else []
+        paths = filedialog.askopenfilenames(
+            title="Select radiometric file(s)",
+            filetypes=[("Radiometric Files", [f"*{ext}" for ext in SUPPORTED_EXTENSIONS]), ("All Files", "*.*")],
+        )
+        seq_paths = [p for p in paths if str(p).lower().endswith(SUPPORTED_EXTENSIONS)] if paths else []
         if not seq_paths:
             return
         self._set_batch_paths(seq_paths)
     def on_open_folder(self, folder_override: Optional[str] = None):
-        folder = folder_override or filedialog.askdirectory(title="Select folder containing SEQ files")
+        folder = folder_override or filedialog.askdirectory(title="Select folder containing radiometric files")
         if not folder:
             return
         seq_paths = []
@@ -851,12 +908,12 @@ class SKDDashboard(tk.Tk):
             for name in filenames:
                 if name.startswith("."):
                     continue
-                if name.lower().endswith(".seq"):
+                if name.lower().endswith(SUPPORTED_EXTENSIONS):
                     seq_paths.append(os.path.join(root, name))
         if not seq_paths:
             messagebox.showinfo(
-                "Open SEQ files",
-                "No .seq files found in the selected folder (including subfolders).",
+                "Open files",
+                "No radiometric files found in the selected folder (including subfolders).",
             )
             return
         self._set_batch_paths(seq_paths)
@@ -921,10 +978,15 @@ class SKDDashboard(tk.Tk):
         self.playing = not self.playing
         self.btn_play.configure(text="Pause" if self.playing else "Play")
         if self.playing:
+            self._last_frame_time = time.monotonic()
+            self._start_prefetch()
             self.after(1, self._play_loop)
+        else:
+            self._stop_prefetch()
     def on_stop(self):
         if self.im is None: return
         self.playing = False
+        self._stop_prefetch()
         self.btn_play.configure(text="Play")
         self.current_idx = 0
         self._reset_tracking()
@@ -1147,12 +1209,57 @@ class SKDDashboard(tk.Tk):
             self.next_track_id = next_id
             self.last_tracked_frame = frame_idx
         return detections
+    def _stop_prefetch(self):
+        """Stop the background prefetch thread if running."""
+        self._prefetch_stop.set()
+        if self._prefetch_thread is not None and self._prefetch_thread.is_alive():
+            self._prefetch_thread.join(timeout=0.5)
+        self._prefetch_thread = None
+        # Drain the queue
+        while not self._prefetch_queue.empty():
+            try:
+                self._prefetch_queue.get_nowait()
+            except queue.Empty:
+                break
+    def _start_prefetch(self):
+        """Start a background thread that pre-decodes frames ahead of playback."""
+        self._stop_prefetch()
+        self._prefetch_stop.clear()
+
+        def _worker():
+            idx = self.current_idx + 1
+            while not self._prefetch_stop.is_set() and idx < self.num_frames:
+                try:
+                    self.im.get_frame(idx)
+                    frame = np.array(self.im.final, copy=True).reshape(
+                        (self.height, self.width)
+                    )
+                    self._prefetch_queue.put((idx, frame), timeout=0.5)
+                    idx += 1
+                except queue.Full:
+                    if self._prefetch_stop.is_set():
+                        break
+                except Exception:
+                    break
+
+        self._prefetch_thread = threading.Thread(target=_worker, daemon=True)
+        self._prefetch_thread.start()
     def _play_loop(self):
-        if not self.playing or self.im is None: return
+        if not self.playing or self.im is None:
+            return
+        now = time.monotonic()
+        frame_interval = 1.0 / max(1, TARGET_FPS)
+        elapsed = now - self._last_frame_time
+        if elapsed < frame_interval:
+            delay_ms = max(1, int((frame_interval - elapsed) * 1000))
+            self.after(delay_ms, self._play_loop)
+            return
+        self._last_frame_time = now
         self.current_idx += 1
         if self.current_idx >= self.num_frames:
             self.current_idx = self.num_frames - 1
             self.playing = False
+            self._stop_prefetch()
             self.btn_play.configure(text="Play")
             return
         self._render_current()
@@ -1168,6 +1275,7 @@ class SKDDashboard(tk.Tk):
             temp_thresh = float(self.var_thresh.get())
             detections = self._get_tracked_detections(self.current_idx, frame, roi, temp_thresh, update_tracker=True)
             vis = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX)
+            vis = np.clip(vis, 0, 255).astype(np.uint8)
             vis = cv2.cvtColor(vis, cv2.COLOR_GRAY2BGR)
             if roi:
                 rx, ry, rw, rh = roi
@@ -1219,7 +1327,7 @@ class SKDDashboard(tk.Tk):
     def export_frame(self):
         try:
             if not self.seq_path:
-                messagebox.showerror("Export", "Open a SEQ file first.")
+                messagebox.showerror("Export", "Open a file first.")
                 return
             self._ensure_emissivity()
             self.im.get_frame(self.current_idx)
@@ -1228,6 +1336,7 @@ class SKDDashboard(tk.Tk):
             temp_thresh = float(self.var_thresh.get())
             detections = self._get_tracked_detections(self.current_idx, frame, roi, temp_thresh, update_tracker=False)
             vis = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX)
+            vis = np.clip(vis, 0, 255).astype(np.uint8)
             vis = cv2.cvtColor(vis, cv2.COLOR_GRAY2BGR)
             if roi:
                 rx, ry, rw, rh = roi
@@ -1249,13 +1358,13 @@ class SKDDashboard(tk.Tk):
             messagebox.showerror("Export", f"Export failed: {ex}")
     def export_video_csv(self):
         if not self.seq_path:
-            messagebox.showerror("Export", "Open a SEQ file first.")
+            messagebox.showerror("Export", "Open a file first.")
             return
         self._export_csv_for_paths([self.seq_path])
     def export_video_csv_all(self):
         paths = self.batch_paths if self.batch_paths else ([self.seq_path] if self.seq_path else [])
         if not paths:
-            messagebox.showerror("Export", "Open a SEQ file first.")
+            messagebox.showerror("Export", "Open a file first.")
             return
         if self._export_in_progress:
             messagebox.showinfo("Export", "Export is already running.")

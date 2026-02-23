@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Project Overview
-- Firebrand Thermal Analysis dashboard for FLIR SDK SEQ files.
+- Firebrand Thermal Analysis dashboard for FLIR SDK radiometric files (SEQ, CSQ, JPG, ATS, SFMOV, IMG).
 - Primary entry point: `FirebrandThermalAnalysis.py`.
 - Packaged outputs are generated under `dist/` (ignored) and build artifacts under `build/`.
 - Support modules: `SDK.py` and `tutorial/` examples.

@@ -10,3 +10,4 @@ dependencies:
       - opencv-python-headless
       - pillow
       - pyinstaller
+      - pytest

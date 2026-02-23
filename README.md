@@ -1,8 +1,8 @@
 # Firebrand Thermal Analysis
-Firebrand Thermal Analysis dashboard for FLIR SEQ files.
+Firebrand Thermal Analysis dashboard for FLIR radiometric files (SEQ, CSQ, JPG, ATS, SFMOV, IMG).
 
 ## Highlights
-- Open one SEQ, multiple SEQs, or a folder of SEQ files in a single flow.
+- Open one file, multiple files, or a folder of radiometric files in a single flow.
 - Batch CSV export (parallel across files) using shared configuration, ROI, and export range.
 - 1-based start/end trim with `max` to use each file's full length.
 - Per-detection stats: max/min/avg/median temperature, area, and bbox.
@@ -37,9 +37,9 @@ conda env update -f environment.yml --prune
 ```
 
 ## Using the Dashboard
-### Open SEQ files
-- **Open** opens a small menu where you can load SEQ file(s) or a folder.
-- When a folder is selected, all `.seq` files are discovered recursively (including subfolders) and loaded in sorted order.
+### Open files
+- **Open** opens a small menu where you can load radiometric file(s) or a folder.
+- When a folder is selected, all supported files (`.seq`, `.csq`, `.jpg`, `.ats`, `.sfmov`, `.img`) are discovered recursively (including subfolders) and loaded in sorted order.
 - Use **<< / >>** to switch the current view.
 
 ### Playback
@@ -51,7 +51,7 @@ conda env update -f environment.yml --prune
 - **Emissivity**: the metadata value is shown for the current file; default input is 0.9.
 - **Export Range**: start/end are 1-based frame numbers. End accepts `max`.
 - **Start = N / End = N** uses the current frame number (shows Set start/end when no file is loaded).
-- **Apply to `<file>`** saves settings for the current SEQ; **Apply all** applies to all loaded files.
+- **Apply to `<file>`** saves settings for the current file; **Apply all** applies to all loaded files.
 
 ### Region of Interest (ROI)
 - Manual tab: drag on the canvas or edit ROI fields numerically.
@@ -60,12 +60,12 @@ conda env update -f environment.yml --prune
 
 ### Export actions
 - Single **Export...** button opens a menu:
-  - **Export CSV (current)**: saves `basename.csv` next to the SEQ.
-  - **Export CSV (all files)**: exports all loaded SEQs in parallel (one process per SEQ).
-  - **Save frame image (JPG)**: saves `basename_frame_00001.jpg` with overlays next to the SEQ.
+  - **Export CSV (current)**: saves `basename.csv` next to the source file.
+  - **Export CSV (all files)**: exports all loaded files in parallel (one process per file).
+  - **Save frame image (JPG)**: saves `basename_frame_00001.jpg` with overlays next to the source file.
 
 ## How it works
-1) Load SEQ  
+1) Load file  
    - First file sets the batch; `<< / >>` moves through loaded files.  
    - Metadata emissivity is read and shown; override is optional.  
    - Unit defaults to temperature; falls back to counts if unavailable.
@@ -84,8 +84,8 @@ conda env update -f environment.yml --prune
    - Track IDs reset per export range; IDs increment as new objects appear.
 
 5) Export  
-   - CSV: 1-based frame numbers; start/end range; `max` uses full length. Saves `basename.csv` next to the SEQ.  
-   - JPG: saves `basename_frame_00001.jpg` with ROI/detections overlay next to the SEQ.  
+   - CSV: 1-based frame numbers; start/end range; `max` uses full length. Saves `basename.csv` next to the source file.  
+   - JPG: saves `basename_frame_00001.jpg` with ROI/detections overlay next to the source file.  
    - Status bar always prefixes `Status:` and updates during export.
 
 6) Controls & shortcuts  

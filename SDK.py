@@ -103,7 +103,7 @@ def get_file_path_with_dialog():
     """Opens a Tkinter dialog to select a radiometric file."""
     if not _tkinter_available: return None
     root = tkinter.Tk(); root.withdraw(); root.call('wm', 'attributes', '.', '-topmost', True)
-    path = filedialog.askopenfilename(initialdir=os.getcwd(), title="Select FLIR SEQ File", filetypes=(("SEQ Files", "*.seq"),("All Files", "*.*")))
+    path = filedialog.askopenfilename(initialdir=os.getcwd(), title="Select FLIR Radiometric File", filetypes=(("Radiometric Files", ["*.seq", "*.csq", "*.jpg", "*.ats", "*.sfmov", "*.img"]),("All Files", "*.*")))
     root.destroy()
     return path if path else None
 # --- End Helper Functions ---
