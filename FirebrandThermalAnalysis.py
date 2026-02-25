@@ -463,12 +463,23 @@ class SKDDashboard(ctk.CTk):
         self.cbar_canvas.pack(side="right", fill="y", padx=(5, 0))
 
         # -- Bottom Control Pod --
-        self.bottom_pod = ctk.CTkFrame(self, corner_radius=10, height=60, fg_color="#1E293B")
+        self.bottom_pod = ctk.CTkFrame(self, corner_radius=10, height=80, fg_color="#1E293B")
         self.bottom_pod.grid(row=1, column=0, columnspan=2, sticky="ew", padx=10, pady=10)
         self.bottom_pod.pack_propagate(False)
+        
+        # Use grid inside the pod: Row 0 = slider, Row 1 = buttons + status
+        self.bottom_pod.grid_columnconfigure(0, weight=0)   # buttons
+        self.bottom_pod.grid_columnconfigure(1, weight=1)   # slider / status
+        self.bottom_pod.grid_rowconfigure(0, weight=1)
+        self.bottom_pod.grid_rowconfigure(1, weight=0)
 
+        # Row 0: Full-width slider (never compressed)
+        self.slider = ctk.CTkSlider(self.bottom_pod, from_=0, to=1, number_of_steps=1, command=self.on_slider)
+        self.slider.grid(row=0, column=0, columnspan=2, sticky="ew", padx=15, pady=(10, 2))
+
+        # Row 1: Buttons on left, status on right
         ctrl_left = ctk.CTkFrame(self.bottom_pod, fg_color="transparent")
-        ctrl_left.pack(side="left", fill="y", padx=10, pady=10)
+        ctrl_left.grid(row=1, column=0, sticky="w", padx=10, pady=(2, 8))
         
         self.btn_play = ctk.CTkButton(ctrl_left, text="Play", width=60, command=self.on_play_pause, font=font_ui)
         self.btn_play.pack(side="left", padx=5)
@@ -477,11 +488,8 @@ class SKDDashboard(ctk.CTk):
         self.btn_next = ctk.CTkButton(ctrl_left, text=">", width=30, command=self.on_next, font=font_ui)
         self.btn_next.pack(side="left", padx=5)
         
-        self.slider = ctk.CTkSlider(self.bottom_pod, from_=0, to=1, number_of_steps=1, command=self.on_slider)
-        self.slider.pack(side="left", fill="x", expand=True, padx=15, pady=20)
-        
-        self.status = ctk.CTkLabel(self.bottom_pod, text="Status: ready", font=font_data, text_color="#F59E0B")
-        self.status.pack(side="right", padx=15, pady=20)
+        self.status = ctk.CTkLabel(self.bottom_pod, text="Status: ready", font=font_data, text_color="#F59E0B", anchor="e")
+        self.status.grid(row=1, column=1, sticky="e", padx=15, pady=(2, 8))
 
         # -- Side Telemetry Panel --
         self.side_panel = ctk.CTkScrollableFrame(self, width=340, corner_radius=10, fg_color="#0F172A")
