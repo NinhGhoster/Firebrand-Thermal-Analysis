@@ -79,7 +79,11 @@ python FirebrandThermalAnalysis.py
 - **Fullscreen**: press `F` to toggle fullscreen, `Escape` to exit.
 
 ### Performance & Export Acceleration
-**Performance**: Batch export operations automatically use **all available CPU cores** (multi-processing) to process multiple files in parallel seamlessly, maximizing performance on modern CPUs. Video decoding utilizes background pre-fetch threads to seamlessly guarantee playback framerates.
+- **Parallel batch export**: `concurrent.futures.ProcessPoolExecutor` spawns one process per file using all available CPU cores, enabling simultaneous CSV export across an entire dataset.
+- **Background frame pre-fetching**: A dedicated `threading.Thread` decodes frames ahead of playback into a bounded `Queue(maxsize=2)`, eliminating decode latency during real-time playback at 30 fps.
+- **Hardware-accelerated normalisation**: Uses `cv2.normalize(..., cv2.NORM_MINMAX, cv2.CV_8U)` for in-place float-to-uint8 conversion instead of manual per-pixel Python loops.
+- **Adaptive interpolation**: Automatically selects `cv2.INTER_AREA` for downscaling (anti-aliased) and `cv2.INTER_LINEAR` for upscaling, with a fast path that skips `cv2.warpAffine` entirely when zoom is 1× and pan is zero.
+- **Thread-safe NetCDF4 random access**: Compressed `.nc` files use `threading.Lock`-guarded frame reads, enabling instant random-access seeking without decompressing the full file.
 
 ### Keyboard Shortcuts
 | Playback | Action | View | Action |
