@@ -136,6 +136,7 @@ Optional env vars for all platforms: `FLIR_SDK_WHEEL`, `FLIR_SDK_LIB_DIR`, `FLIR
 
 ## Repository Layout
 ```text
+Firebrand-Thermal-Analysis/
 ├── FirebrandThermalAnalysis.py  # main dashboard UI and export logic
 ├── SDK.py                       # legacy tracking + detection implementation
 ├── SDK/                         # FLIR SDK installers and wheels
