@@ -1,5 +1,5 @@
 # Firebrand Thermal Analysis
-Firebrand Thermal Analysis dashboard for FLIR radiometric files (SEQ, CSQ, JPG, ATS, SFMOV, IMG).
+A high-performance, GUI-driven dashboard for researchers to extract and track thermal data from massive FLIR radiometric files (SEQ, CSQ, JPG, ATS, SFMOV, IMG). It optimizes analysis workflows by automating the detection of firebrands (embers) and fuel bed hotspots in combustion experiments.
 
 ## Highlights
 - Open one file, multiple files, or a folder of radiometric files in a single flow.
@@ -78,24 +78,17 @@ python FirebrandThermalAnalysis.py
 - **Color bar**: gradient strip to the right of the canvas showing the current colormap with min / max temperature labels.
 - **Fullscreen**: press `F` to toggle fullscreen, `Escape` to exit.
 
+### Performance & Export Acceleration
+**Performance**: Batch export operations automatically use **all available CPU cores** (multi-processing) to process multiple files in parallel seamlessly, maximizing performance on modern CPUs. Video decoding utilizes background pre-fetch threads to seamlessly guarantee playback framerates.
+
 ### Keyboard Shortcuts
-| Key | Action |
-|---|---|
-| `Space` | Play / Pause |
-| `S` | Stop |
-| `←` / `,` | Previous frame |
-| `→` / `.` | Next frame |
-| `Home` | Jump to first frame |
-| `End` | Jump to last frame |
-| `+` / `-` | Zoom in / out |
-| `0` | Reset zoom |
-| `1`–`8` | Quick-select colormap |
-| `R` | Reset ROI |
-| `F` | Toggle fullscreen |
-| `Escape` | Exit fullscreen |
-| `Double-click` | Reset zoom |
-| `Scroll wheel` | Zoom on cursor |
-| `Middle-drag` | Pan view |
+| Playback | Action | View | Action |
+|---|---|---|---|
+| `Space` / `S` | Play/Pause / Stop | `+` / `-` / `0` | Zoom In / Out / Reset |
+| `←` / `→` or `,` / `.` | Prev / Next Frame | `Double-click` | Reset zoom |
+| `Home` / `End` | Jump First / Last | `Scroll` / `Mid-drag` | Zoom on cursor / Pan view |
+| `R` | Reset ROI | `1`–`8` | Quick-select colormap |
+| `F` / `Escape` | Fullscreen / Exit | | |
 
 ## CSV Schema
 Each row is one detected firebrand in a frame.
@@ -142,23 +135,17 @@ Optional env vars for all platforms: `FLIR_SDK_WHEEL`, `FLIR_SDK_LIB_DIR`, `FLIR
 - **Counts vs C**: if the file has no temperature unit, values are in counts.
 
 ## Repository Layout
-- `FirebrandThermalAnalysis.py`: main dashboard UI and export logic.
-- `SDK.py`: legacy tracking + detection implementation.
-- `SDK/`: FLIR SDK installers and wheels.
-- `build/`: platform build scripts and packaging helpers.
-- `dist/`: packaged outputs (generated/ignored).
-- `tests/`: unit tests (`pytest`).
-- `tutorial/`: SDK usage examples.
+```text
+├── FirebrandThermalAnalysis.py  # main dashboard UI and export logic
+├── SDK.py                       # legacy tracking + detection implementation
+├── SDK/                         # FLIR SDK installers and wheels
+├── build/                       # platform build scripts and packaging helpers
+├── dist/                        # packaged outputs (generated/ignored)
+├── tests/                       # unit tests (pytest)
+└── tutorial/                    # SDK usage examples
+```
 
-## About the Project
-Firebrand Thermal Analysis was developed to provide researchers with a high-performance, GUI-driven tool for extracting and tracking thermal data from FLIR radiometric video files. It is built to optimize the workflow of analyzing massive datasets, automating the detection of firebrands (embers) and fuel bed hotspots in combustion experiments.
-
-**Project Team:**
-- H. Nguyen
-- J. Filippi
-- T. Penman
-- M. Peace
-- A. Filkov
+**Project Team:** H. Nguyen, J. Filippi, T. Penman, M. Peace, A. Filkov
 
 ### Companion Tools
 If you are dealing with extremely large radiometric videos (e.g., 30GB+ SEQ files), we highly recommend using our companion **[SEQ-CSQ-compressor](https://github.com/NinhGhoster/SEQ-CSQ-compressor)** tool. It uses NetCDF4 and zlib deflation to permanently reduce file sizes by up to 70%—while retaining strict physical temperature accuracy (0.01 °C) and all embedded camera metadata. Firebrand Thermal Analysis natively reads these `.nc` files for instant, random-access playback without requiring any manual decompression.
