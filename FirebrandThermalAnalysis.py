@@ -93,12 +93,14 @@ class FNVReader(VideoReader):
             self.emissivity = None
             
     def get_frame(self, idx: int) -> np.ndarray:
-        self.reader.get_frame(idx)
-        return self.reader.get_frame(self.current_idx)
+        self.im.get_frame(idx)
+        return np.array(self.im.final, copy=False).reshape((self.height, self.width))
         
     def set_emissivity(self, emiss: float):
         try:
-            self.reader.set_emissivity(emiss)
+            obj_params = self.im.object_parameters
+            obj_params.emissivity = emiss
+            self.im.object_parameters = obj_params
             self.emissivity = emiss
         except Exception:
             pass
@@ -114,12 +116,14 @@ class NetCDFReader(VideoReader):
         self.height = self.temp_var.shape[1]
         self.width = self.temp_var.shape[2]
         self.unit_label = "C"
+        self._lock = threading.Lock()
         
         if "emissivity_original" in self.ds.ncattrs():
             self.emissivity = float(self.ds.getncattr("emissivity_original"))
             
     def get_frame(self, idx: int) -> np.ndarray:
-        return np.array(self.temp_var[idx, :, :])
+        with self._lock:
+            return np.array(self.temp_var[idx, :, :])
         
     def set_emissivity(self, emiss: float):
         # Emissivity is baked in during compression for NetCDF, but we update the meta tracker
