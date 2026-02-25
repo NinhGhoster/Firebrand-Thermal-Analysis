@@ -608,24 +608,13 @@ class SKDDashboard(ctk.CTk):
             wraplength=280,
             justify="left",
         ).pack(anchor="w", padx=10, pady=(8, 2))
-        btn_row = ctk.CTkFrame(footer_frame, fg_color="transparent")
-        btn_row.pack(fill="x", padx=10, pady=(2, 8))
-        
         ctk.CTkButton(
-            btn_row,
+            footer_frame,
             text="Check for updates",
             command=self.on_check_updates,
             font=("Fira Sans", 12),
             height=30,
-        ).pack(side="left", expand=True, padx=(0, 2))
-        
-        ctk.CTkButton(
-            btn_row,
-            text="About...",
-            command=self.show_about_dialog,
-            font=("Fira Sans", 12),
-            height=30,
-        ).pack(side="right", expand=True, padx=(2, 0))
+        ).pack(fill="x", padx=10, pady=(2, 8))
 
         # Triggers for labels
         self._update_apply_labels()
@@ -818,32 +807,6 @@ class SKDDashboard(ctk.CTk):
             )
             if open_now:
                 webbrowser.open(release_url)
-    def show_about_dialog(self):
-        about = ctk.CTkToplevel(self)
-        about.title("About Firebrand Thermal Analysis")
-        about.geometry("400x250")
-        about.resizable(False, False)
-        
-        # Center the window
-        about.update_idletasks()
-        x = self.winfo_x() + (self.winfo_width() // 2) - 200
-        y = self.winfo_y() + (self.winfo_height() // 2) - 125
-        about.geometry(f"+{x}+{y}")
-        
-        # Ensure it stays on top
-        about.attributes("-topmost", True)
-        
-        ctk.CTkLabel(about, text="Firebrand Thermal Analysis", font=("Fira Sans", 20, "bold"), text_color="#3B82F6").pack(pady=(20, 5))
-        ctk.CTkLabel(about, text=f"Version {APP_VERSION}", font=("Fira Sans", 14)).pack(pady=(0, 15))
-        
-        ctk.CTkLabel(about, text="Developed by:", font=("Fira Sans", 12, "bold"), text_color="gray").pack()
-        ctk.CTkLabel(about, text="H. Nguyen, J. Filippi, T. Penman, M. Peace, A. Filkov", font=("Fira Sans", 12)).pack(pady=(0, 15))
-        
-        def _open_compressor():
-            webbrowser.open("https://github.com/NinhGhoster/SEQ-CSQ-compressor")
-            
-        repo_btn = ctk.CTkButton(about, text="SEQ-CSQ-compressor on GitHub", fg_color="#F59E0B", text_color="#0F172A", hover_color="#D97706", command=_open_compressor)
-        repo_btn.pack(pady=(5, 20))
 
     def show_export_menu(self):
         menu = tk.Menu(self, tearoff=0)

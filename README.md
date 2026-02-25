@@ -12,6 +12,9 @@ Firebrand Thermal Analysis dashboard for FLIR radiometric files (SEQ, CSQ, JPG, 
 - Color bar showing temperature-to-color gradient.
 - Comprehensive keyboard shortcuts for playback, zoom, colormaps, and fullscreen.
 
+## Compressed File Support
+Firebrand Thermal Analysis natively supports **NetCDF4 (`.nc`)** files heavily compressed by the companion [SEQ-CSQ-compressor](https://github.com/NinhGhoster/SEQ-CSQ-compressor) tool. This dramatically speeds up analysis workflows by letting you process 37GB thermal videos as ~10GB heavily-compressed random-access files without needing to wait for decompression.
+
 ## Requirements
 - FLIR Science File SDK installed (see `SDK/` for wheels).
 - Python 3.12 (conda environment recommended).
