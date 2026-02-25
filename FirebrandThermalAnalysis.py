@@ -1090,7 +1090,7 @@ class SKDDashboard(ctk.CTk):
             self.width = self.reader.width
             self.height = self.reader.height
             self.current_idx = 0
-            self.slider.configure(from_=0, to=max(0, self.num_frames-1))
+            self.slider.configure(from_=0, to=max(0, self.num_frames-1), number_of_steps=max(1, self.num_frames-1))
             self._reset_tracking()
             self._applied_emissivity = None
             self.status.configure(text=f"Status: opened {os.path.basename(path)} | {self.width}x{self.height} | {self.num_frames} frames")
