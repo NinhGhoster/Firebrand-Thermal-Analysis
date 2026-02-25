@@ -220,5 +220,15 @@ The script generates a default 256x256 icon for AppImage metadata.
 - `tests/`: unit tests (`pytest`).
 - `tutorial/`: SDK usage examples.
 
-## Credits
-Developed from FLIR SDK by H. Nguyen.
+## About the Project
+Firebrand Thermal Analysis was developed to provide researchers with a high-performance, GUI-driven tool for extracting and tracking thermal data from FLIR radiometric video files. It is built to optimize the workflow of analyzing massive datasets, automating the detection of firebrands (embers) and fuel bed hotspots in combustion experiments.
+
+**Project Team:**
+- H. Nguyen
+- J. Filippi
+- T. Penman
+- M. Peace
+- A. Filkov
+
+### Companion Tools
+If you are dealing with extremely large radiometric videos (e.g., 30GB+ SEQ files), we highly recommend using our companion **[SEQ-CSQ-compressor](https://github.com/NinhGhoster/SEQ-CSQ-compressor)** tool. It uses NetCDF4 and zlib deflation to permanently reduce file sizes by up to 70%—while retaining strict physical temperature accuracy (0.01 °C) and all embedded camera metadata. Firebrand Thermal Analysis natively reads these `.nc` files for instant, random-access playback without requiring any manual decompression.
