@@ -1,13 +1,16 @@
 name: firebrand-thermal
 channels:
-  - conda-forge
+  - defaults
 dependencies:
   - python=3.12
   - pip
-  - tk
   - pip:
-      - numpy
       - opencv-python-headless
+      - numpy
       - pillow
-      - pyinstaller
+      - customtkinter
+      - darkdetect
+      - click
       - pytest
+      - netCDF4
+      - pyinstaller

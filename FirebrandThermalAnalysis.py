@@ -49,6 +49,89 @@ try:
 except Exception:
     print("FLIR SDK required"); sys.exit(1)
 
+try:
+    import netCDF4 as nc
+except ImportError:
+    nc = None
+    print("netCDF4 not found. .nc compressed files will not be supported.")
+
+# --- Video Reader Abstraction ---
+class VideoReader:
+    def __init__(self, path: str):
+        self.path = path
+        self.num_frames = 0
+        self.width = 0
+        self.height = 0
+        self.is_temp = True
+        self.emissivity = None
+        self.unit_label = "C"
+        
+    def get_frame(self, idx: int) -> np.ndarray:
+        raise NotImplementedError
+    
+    def set_emissivity(self, emiss: float):
+        pass
+
+class FNVReader(VideoReader):
+    def __init__(self, path: str):
+        super().__init__(path)
+        self.im = fnv.file.ImagerFile(path)
+        self.is_temp = self.im.has_unit(fnv.Unit.TEMPERATURE_FACTORY)
+        if self.is_temp:
+            self.im.unit = fnv.Unit.TEMPERATURE_FACTORY
+            self.im.temp_type = fnv.TempType.CELSIUS
+        else:
+            self.im.unit = fnv.Unit.COUNTS
+            self.unit_label = "counts"
+        
+        self.num_frames = self.im.num_frames
+        self.width = self.im.width
+        self.height = self.im.height
+        try:
+            self.emissivity = float(self.im.object_parameters.emissivity)
+        except Exception:
+            self.emissivity = None
+            
+    def get_frame(self, idx: int) -> np.ndarray:
+        self.reader.get_frame(idx)
+        return self.reader.get_frame(self.current_idx)
+        
+    def set_emissivity(self, emiss: float):
+        try:
+            self.reader.set_emissivity(emiss)
+            self.emissivity = emiss
+        except Exception:
+            pass
+
+class NetCDFReader(VideoReader):
+    def __init__(self, path: str):
+        super().__init__(path)
+        if nc is None:
+            raise ImportError("netCDF4 library is required to read .nc files")
+        self.ds = nc.Dataset(path, "r")
+        self.temp_var = self.ds.variables["temperature"]
+        self.num_frames = self.temp_var.shape[0]
+        self.height = self.temp_var.shape[1]
+        self.width = self.temp_var.shape[2]
+        self.unit_label = "C"
+        
+        if "emissivity_original" in self.ds.ncattrs():
+            self.emissivity = float(self.ds.getncattr("emissivity_original"))
+            
+    def get_frame(self, idx: int) -> np.ndarray:
+        return np.array(self.temp_var[idx, :, :])
+        
+    def set_emissivity(self, emiss: float):
+        # Emissivity is baked in during compression for NetCDF, but we update the meta tracker
+        self.emissivity = emiss
+
+def create_video_reader(path: str) -> VideoReader:
+    if path.lower().endswith(".nc"):
+        return NetCDFReader(path)
+    return FNVReader(path)
+# --------------------------------
+
+
 # ------- Tracking Parameters/Globals -------
 DESIRED_TEMP_UNIT = fnv.TempType.CELSIUS
 TEMP_THRESHOLD_CELSIUS = 300.0
@@ -56,7 +139,7 @@ MIN_OBJECT_AREA_PIXELS = 3
 MAX_OBJECT_AREA_PIXELS = 150
 CENTROID_TRACKING_MAX_DIST = 40
 TRACK_MEMORY_FRAMES = 15
-SUPPORTED_EXTENSIONS = (".seq", ".csq", ".jpg", ".ats", ".sfmov", ".img")
+SUPPORTED_EXTENSIONS = (".seq", ".csq", ".jpg", ".ats", ".sfmov", ".img", ".nc")
 TARGET_FPS = 30
 COLORMAPS = {
     "Inferno": cv2.COLORMAP_INFERNO,
@@ -212,24 +295,11 @@ def export_seq_to_csv_worker(seq_path: str, settings: Dict[str, Any]) -> Tuple[s
         end_raw = str(settings.get("export_end", "max")).strip().lower()
         temp_thresh = float(settings.get("thresh", TEMP_THRESHOLD_CELSIUS))
 
-        im = fnv.file.ImagerFile(seq_path)
-        unit_is_temp = im.has_unit(fnv.Unit.TEMPERATURE_FACTORY)
-        if unit_is_temp:
-            im.unit = fnv.Unit.TEMPERATURE_FACTORY
-            im.temp_type = DESIRED_TEMP_UNIT
-        else:
-            im.unit = fnv.Unit.COUNTS
-
-        try:
-            obj_params = im.object_parameters
-            obj_params.emissivity = float(settings.get("emissivity", 0.9))
-            im.object_parameters = obj_params
-        except Exception:
-            pass
-
-        num_frames = im.num_frames
-        width = im.width
-        height = im.height
+        reader = create_video_reader(seq_path)
+        reader.set_emissivity(float(settings.get("emissivity", 0.9)))
+        num_frames = reader.num_frames
+        width = reader.width
+        height = reader.height
         roi = clamp_roi(settings.get("roi"), width, height)
 
         try:
@@ -248,8 +318,7 @@ def export_seq_to_csv_worker(seq_path: str, settings: Dict[str, Any]) -> Tuple[s
         next_id = 1
         rows = []
         for idx in range(start_use - 1, end_f):
-            im.get_frame(idx)
-            frame = np.array(im.final, copy=False).reshape((height, width))
+            frame = reader.get_frame(idx)
             detections = detect_firebrands(frame, roi, temp_thresh)
             tracked, detections, next_id = assign_tracks(detections, tracked, next_id, idx)
             for det in sorted(detections, key=lambda d: d.get("track_id", -1)):
@@ -539,13 +608,24 @@ class SKDDashboard(ctk.CTk):
             wraplength=280,
             justify="left",
         ).pack(anchor="w", padx=10, pady=(8, 2))
+        btn_row = ctk.CTkFrame(footer_frame, fg_color="transparent")
+        btn_row.pack(fill="x", padx=10, pady=(2, 8))
+        
         ctk.CTkButton(
-            footer_frame,
+            btn_row,
             text="Check for updates",
             command=self.on_check_updates,
             font=("Fira Sans", 12),
             height=30,
-        ).pack(fill="x", padx=10, pady=(2, 8))
+        ).pack(side="left", expand=True, padx=(0, 2))
+        
+        ctk.CTkButton(
+            btn_row,
+            text="About...",
+            command=self.show_about_dialog,
+            font=("Fira Sans", 12),
+            height=30,
+        ).pack(side="right", expand=True, padx=(2, 0))
 
         # Triggers for labels
         self._update_apply_labels()
@@ -738,6 +818,33 @@ class SKDDashboard(ctk.CTk):
             )
             if open_now:
                 webbrowser.open(release_url)
+    def show_about_dialog(self):
+        about = ctk.CTkToplevel(self)
+        about.title("About Firebrand Thermal Analysis")
+        about.geometry("400x250")
+        about.resizable(False, False)
+        
+        # Center the window
+        about.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() // 2) - 200
+        y = self.winfo_y() + (self.winfo_height() // 2) - 125
+        about.geometry(f"+{x}+{y}")
+        
+        # Ensure it stays on top
+        about.attributes("-topmost", True)
+        
+        ctk.CTkLabel(about, text="Firebrand Thermal Analysis", font=("Fira Sans", 20, "bold"), text_color="#3B82F6").pack(pady=(20, 5))
+        ctk.CTkLabel(about, text=f"Version {APP_VERSION}", font=("Fira Sans", 14)).pack(pady=(0, 15))
+        
+        ctk.CTkLabel(about, text="Developed by:", font=("Fira Sans", 12, "bold"), text_color="gray").pack()
+        ctk.CTkLabel(about, text="H. Nguyen, J. Filippi, T. Penman, M. Peace, A. Filkov", font=("Fira Sans", 12)).pack(pady=(0, 15))
+        
+        def _open_compressor():
+            webbrowser.open("https://github.com/NinhGhoster/SEQ-CSQ-compressor")
+            
+        repo_btn = ctk.CTkButton(about, text="SEQ-CSQ-compressor on GitHub", fg_color="#F59E0B", text_color="#0F172A", hover_color="#D97706", command=_open_compressor)
+        repo_btn.pack(pady=(5, 20))
+
     def show_export_menu(self):
         menu = tk.Menu(self, tearoff=0)
         menu.add_command(label="Export CSV (current)", command=self.export_video_csv)
@@ -878,7 +985,7 @@ class SKDDashboard(ctk.CTk):
             return
         try:
             self.im.get_frame(0)
-            frame = np.array(self.im.final, copy=False).reshape((self.height, self.width))
+            frame = self.reader.get_frame(self.current_idx)
             margin = max(0, int(self.var_auto_margin.get()))
             roi = self._auto_roi_from_frame(frame, margin=margin)
             self.roi_rect = roi
@@ -1003,32 +1110,25 @@ class SKDDashboard(ctk.CTk):
         self._load_seq(seq_paths[0], reset_settings=True)
     def _load_seq(self, path: str, reset_settings: bool):
         try:
-            im = fnv.file.ImagerFile(path)
-            self.unit_is_temp = im.has_unit(fnv.Unit.TEMPERATURE_FACTORY)
-            if self.unit_is_temp:
-                im.unit = fnv.Unit.TEMPERATURE_FACTORY
-                im.temp_type = DESIRED_TEMP_UNIT
-                self.unit_label = "C"
-            else:
-                im.unit = fnv.Unit.COUNTS
-                self.unit_label = "counts"
-            self.im = im
+            self.reader = create_video_reader(path)
+            self.im = self.reader  # Compatibility alias
+            self.unit_is_temp = self.reader.is_temp
+            self.unit_label = self.reader.unit_label
+            
             self.seq_path = path
             if path in self.batch_paths:
                 self.batch_index = self.batch_paths.index(path)
-            self.num_frames = im.num_frames
-            self.width = im.width
-            self.height = im.height
+            
+            self.num_frames = self.reader.num_frames
+            self.width = self.reader.width
+            self.height = self.reader.height
             self.current_idx = 0
             self.slider.configure(from_=0, to=max(0, self.num_frames-1))
             self._reset_tracking()
             self._applied_emissivity = None
             self.status.configure(text=f"Status: opened {os.path.basename(path)} | {self.width}x{self.height} | {self.num_frames} frames")
-            meta_emiss = None
-            try:
-                meta_emiss = float(im.object_parameters.emissivity)
-            except Exception:
-                meta_emiss = None
+            
+            meta_emiss = self.reader.emissivity
             self._update_metadata_label(meta_emiss)
             if path in self.file_settings:
                 self._apply_settings(self.file_settings[path])
@@ -1133,9 +1233,7 @@ class SKDDashboard(ctk.CTk):
         try:
             emiss = float(self.var_emissivity.get())
             emiss = max(0.01, min(1.0, emiss))
-            obj_params = self.im.object_parameters
-            obj_params.emissivity = emiss
-            self.im.object_parameters = obj_params
+            self.reader.set_emissivity(emiss)
             self._applied_emissivity = emiss
             if update_status:
                 self.status.configure(text=f"{self._base_status} | Emissivity: {emiss:.3f}")
@@ -1151,13 +1249,8 @@ class SKDDashboard(ctk.CTk):
         except Exception:
             return
         if self._applied_emissivity is None or abs(self._applied_emissivity - emiss) > 1e-4:
-            try:
-                obj_params = self.im.object_parameters
-                obj_params.emissivity = emiss
-                self.im.object_parameters = obj_params
-                self._applied_emissivity = emiss
-            except Exception:
-                pass
+            self.reader.set_emissivity(emiss)
+            self._applied_emissivity = emiss
     def _bbox_iou(self, box_a: Tuple[int,int,int,int], box_b: Tuple[int,int,int,int]) -> float:
         ax0, ay0, aw, ah = box_a
         bx0, by0, bw, bh = box_b
@@ -1314,10 +1407,8 @@ class SKDDashboard(ctk.CTk):
             idx = self.current_idx + 1
             while not self._prefetch_stop.is_set() and idx < self.num_frames:
                 try:
-                    self.im.get_frame(idx)
-                    frame = np.array(self.im.final, copy=True).reshape(
-                        (self.height, self.width)
-                    )
+                    self.reader.get_frame(idx)
+                    frame = self.reader.get_frame(idx)
                     self._prefetch_queue.put((idx, frame), timeout=0.5)
                     idx += 1
                 except queue.Full:
@@ -1363,8 +1454,8 @@ class SKDDashboard(ctk.CTk):
         if self.im is None: return
         try:
             self._ensure_emissivity()
-            self.im.get_frame(self.current_idx)
-            frame = np.array(self.im.final, copy=False).reshape((self.height, self.width))
+            
+            frame = self.reader.get_frame(self.current_idx)
             self._last_frame = frame
             roi = self.roi_rect
             temp_thresh = float(self.var_thresh.get())
@@ -1465,8 +1556,8 @@ class SKDDashboard(ctk.CTk):
                 messagebox.showerror("Export", "Open a file first.")
                 return
             self._ensure_emissivity()
-            self.im.get_frame(self.current_idx)
-            frame = np.array(self.im.final, copy=False).reshape((self.height, self.width))
+            
+            frame = self.reader.get_frame(self.current_idx)
             roi = self.roi_rect
             temp_thresh = float(self.var_thresh.get())
             detections = self._get_tracked_detections(self.current_idx, frame, roi, temp_thresh, update_tracker=False)
