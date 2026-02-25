@@ -1370,7 +1370,6 @@ class SKDDashboard(ctk.CTk):
             idx = self.current_idx + 1
             while not self._prefetch_stop.is_set() and idx < self.num_frames:
                 try:
-                    self.reader.get_frame(idx)
                     frame = self.reader.get_frame(idx)
                     self._prefetch_queue.put((idx, frame), timeout=0.5)
                     idx += 1

@@ -1,234 +1,95 @@
 # Firebrand Thermal Analysis
-Firebrand Thermal Analysis dashboard for FLIR radiometric files (SEQ, CSQ, JPG, ATS, SFMOV, IMG).
+Firebrand Thermal Analysis dashboard for FLIR radiometric files (SEQ, CSQ, JPG, ATS, SFMOV, IMG, NC). Developed to provide researchers with a high-performance, GUI-driven tool for extracting and tracking thermal data from FLIR radiometric video files, automating the detection of firebrands (embers) and fuel bed hotspots in combustion experiments.
 
 ## Highlights
-- Open one file, multiple files, or a folder of radiometric files in a single flow.
-- Batch CSV export (parallel across files) using shared configuration, ROI, and export range.
-- 1-based start/end trim with `max` to use each file's full length.
-- Per-detection stats: max/min/avg/median temperature, area, and bbox.
-- Export current frame to JPG with ROI and detection overlays.
+- Open single files, multiple files, or entire folders of radiometric files.
+- Batch CSV export (parallel across files) with shared configuration, ROI, and export range.
+- Per-detection stats: max/min/avg/median temperature, area, and bounding box.
 - Thermal colormaps (Inferno, Jet, Hot, Magma, Plasma, Bone, Turbo, Grayscale).
-- Interactive zoom & pan with mouse hover temperature readout.
-- Color bar showing temperature-to-color gradient.
-- Comprehensive keyboard shortcuts for playback, zoom, colormaps, and fullscreen.
-
-## Compressed File Support
-Firebrand Thermal Analysis natively supports **NetCDF4 (`.nc`)** files heavily compressed by the companion [SEQ-CSQ-compressor](https://github.com/NinhGhoster/SEQ-CSQ-compressor) tool. This dramatically speeds up analysis workflows by letting you process 37GB thermal videos as ~10GB heavily-compressed random-access files without needing to wait for decompression.
+- Interactive zoom & pan with live temperature readout under cursor.
+- Native support for compressed **NetCDF4 (`.nc`)** files from the companion [SEQ-CSQ-compressor](https://github.com/NinhGhoster/SEQ-CSQ-compressor).
 
 ## Requirements
-- FLIR Science File SDK installed (see `SDK/` for wheels).
-- Python 3.12 (conda environment recommended).
-- OpenCV via `opencv-python-headless` (included in the conda env).
-- macOS builds are Apple Silicon (arm64) only.
+- Python 3.12 (conda recommended)
+- FLIR Science File SDK (see `SDK/` for platform wheels)
+- OpenCV (`opencv-python-headless`, included in conda env)
 
 ## Quick Start
 ```bash
 conda env create -f environment.yml
 conda activate firebrand-thermal
 
-# Install the FLIR SDK Python wheel for your OS
-# macOS:
+# Install FLIR SDK wheel for your platform
 pip install "SDK/FileSDK-2024.7.1-cp312-cp312-macosx_10_14_universal2.whl"
-# Windows:
-# pip install "SDK/FileSDK-2024.7.1-cp312-cp312-win_amd64.whl"
-# Linux:
-# pip install "SDK/FileSDK-2024.7.1-cp312-cp312-linux_x86_64.whl"
 
 python FirebrandThermalAnalysis.py
 ```
 
-## Update the Conda Environment
-```bash
-conda env update -f environment.yml --prune
-```
+## Usage
 
-## Using the Dashboard
-### Open files
-- **Open** opens a small menu where you can load radiometric file(s) or a folder.
-- When a folder is selected, all supported files (`.seq`, `.csq`, `.jpg`, `.ats`, `.sfmov`, `.img`) are discovered recursively (including subfolders) and loaded in sorted order.
-- Use **<< / >>** to switch the current view.
-
-### Playback
-- **Play/Pause** toggles play/pause, **< / >** step frames, and the frame slider scrubs.
-- Keyboard: `Space` toggles play/pause, `Left`/`Right` or `,`/`.` steps frames.
-
-### Export settings
-- **Detection Threshold**: temperature threshold (C) for firebrand detection.
-- **Emissivity**: the metadata value is shown for the current file; default input is 0.9.
-- **Export Range**: start/end are 1-based frame numbers. End accepts `max`.
-- **Start = N / End = N** uses the current frame number (shows Set start/end when no file is loaded).
-- **Apply to `<file>`** saves settings for the current file; **Apply all** applies to all loaded files.
-
-### Region of Interest (ROI)
-- Manual tab: drag on the canvas or edit ROI fields numerically.
-- Auto tab: auto-detect ROI above the fuel bed from the first frame (margin adjustable).
-- ROI updates apply to the current file or all files via Apply to `<file>` / Apply all.
-
-### Export actions
-- Single **Export...** button opens a menu:
-  - **Export CSV (current)**: saves `basename.csv` next to the source file.
-  - **Export CSV (all files)**: exports all loaded files in parallel (one process per file).
-  - **Save frame image (JPG)**: saves `basename_frame_00001.jpg` with overlays next to the source file.
-
-## How it works
-1) Load file  
-   - First file sets the batch; `<< / >>` moves through loaded files.  
-   - Metadata emissivity is read and shown; override is optional.  
-   - Unit defaults to temperature; falls back to counts if unavailable.
-
-2) ROI  
-   - Manual tab: numeric ROI fields and canvas drag.  
-   - Auto tab: one-click auto ROI from the first frame. It finds the bright fuel bed in the lower half (mean > global_mean + 0.5*std) and sets ROI from the top of the image down to just above the fuel bed (minus a user margin). If detection fails, it falls back to the top 40% band. Margin (px) is adjustable.
-
-3) Detection  
-   - Temperature threshold (C) applied to ROI; binary mask -> connected components (8-connectivity).  
-   - Filters by area (`MIN_OBJECT_AREA_PIXELS` to `MAX_OBJECT_AREA_PIXELS`).  
-   - Per detection stats: max/min/avg/median temperature and area + bbox.
-
-4) Tracking  
-   - Nearest-centroid matching with distance cap (`CENTROID_TRACKING_MAX_DIST`) and short memory (`TRACK_MEMORY_FRAMES`).  
-   - Track IDs reset per export range; IDs increment as new objects appear.
-
-5) Export  
-   - CSV: 1-based frame numbers; start/end range; `max` uses full length. Saves `basename.csv` next to the source file.  
-   - JPG: saves `basename_frame_00001.jpg` with ROI/detections overlay next to the source file.  
-   - Status bar always prefixes `Status:` and updates during export.
-
-6) Controls & shortcuts  
-   - |< rewind, > play/pause, < / >> step, space/arrow/comma/period keys for stepping, slider for scrubbing.  
-   - Apply to `<file>` saves settings per file; Apply all propagates to all loaded files.
-
-### Visualisation & Interface
-- **Modern Interface**: Deep dark mode UI powered by CustomTkinter featuring a sleek Bento Grid layout.
-- **Colormaps**: select from the Visualisation dropdown (Inferno, Jet, Hot, Magma, Plasma, Bone, Turbo, Grayscale), or press `1`–`8` to quick-select.
-- **Zoom**: scroll wheel zooms 0.5×–10× centred on cursor; `+`/`-` keys zoom in/out; `0` or double-click resets.
-- **Pan**: middle-click drag pans the view.
-- **Temperature readout**: hover over the canvas to see the temperature at the cursor in the status bar.
-- **Color bar**: gradient strip to the right of the canvas showing the current colormap with min / max temperature labels.
-- **Fullscreen**: press `F` to toggle fullscreen, `Escape` to exit.
+| Feature | Details |
+|---|---|
+| **Open files** | Load file(s) or a folder; supported formats are discovered recursively. Use `<< / >>` to switch between files. |
+| **Playback** | Play/Pause, frame stepping (`< / >`), slider scrubbing. `Space` toggles playback. |
+| **Detection** | Temperature threshold + connected components (8-connectivity), filtered by area. |
+| **Tracking** | Nearest-centroid matching with distance cap and short-term memory. |
+| **ROI** | Draw on canvas, enter numerically, or auto-detect fuel bed region. |
+| **Export CSV** | Per-file or batch parallel export. 1-based frame range with `max` support. |
+| **Export JPG** | Save current frame with ROI and detection overlays. |
+| **Emissivity** | Reads metadata value; user can override per-file or globally. |
 
 ### Keyboard Shortcuts
 | Key | Action |
 |---|---|
 | `Space` | Play / Pause |
 | `S` | Stop |
-| `←` / `,` | Previous frame |
-| `→` / `.` | Next frame |
-| `Home` | Jump to first frame |
-| `End` | Jump to last frame |
-| `+` / `-` | Zoom in / out |
+| `← / ,` | Previous frame |
+| `→ / .` | Next frame |
+| `Home / End` | First / last frame |
+| `+ / -` | Zoom in / out |
 | `0` | Reset zoom |
 | `1`–`8` | Quick-select colormap |
 | `R` | Reset ROI |
 | `F` | Toggle fullscreen |
-| `Escape` | Exit fullscreen |
-| `Double-click` | Reset zoom |
-| `Scroll wheel` | Zoom on cursor |
-| `Middle-drag` | Pan view |
 
 ## CSV Schema
-Each row is one detected firebrand in a frame.
-
 | Column | Description |
-| --- | --- |
+|---|---|
 | `frame` | 1-based frame index |
-| `firebrand_id` | Track ID (assigned per export) |
-| `max_temperature` | Max temperature in the detection |
-| `min_temperature` | Min temperature in the detection |
-| `avg_temperature` | Mean temperature in the detection |
-| `median_temperature` | Median temperature in the detection |
-| `area_pixels` | Connected-component area in pixels |
-| `bbox_x` | Bounding box left |
-| `bbox_y` | Bounding box top |
-| `bbox_w` | Bounding box width |
-| `bbox_h` | Bounding box height |
+| `firebrand_id` | Track ID (per export) |
+| `max/min/avg/median_temperature` | Detection temperature stats |
+| `area_pixels` | Connected-component area |
+| `bbox_x/y/w/h` | Bounding box |
 
-## Detection + Tracking Overview
-- Detection: temperature threshold + connected components (8-connectivity).
-- Tracking: nearest-centroid matching with a distance cap and short-term memory.
-- Track IDs start at 1 for each export range and increment with new detections.
+## Build & Package
+Builds require the target OS with FLIR SDK installed. PyInstaller is included in the conda env.
 
-## Build Executables
-Builds must be done on the target OS with FLIR SDK installed.
-PyInstaller is included in `environment.yml`; install it manually if missing.
-
-### GitHub Actions (CI)
-The workflow at `.github/workflows/build.yml` builds macOS, Windows, and Linux
-distributions on demand or when you push a tag like `v0.1.0`.
-Artifacts are uploaded to the workflow run and published on releases as
-`FirebrandThermalAnalysis.dmg`, `FirebrandThermalAnalysis.exe`, and
-`FirebrandThermalAnalysis.AppImage`.
-
-### macOS
 ```bash
-./build/build_macos.sh
-```
-Optional env vars:
-- `FLIR_SDK_WHEEL` (preferred) or `FLIR_SDK_PYTHON_DIR` + `FLIR_SDK_SHADOW_DIR`
-- `FLIR_SDK_LIB_DIR` and `FLIR_SDK_BIN_DIR` to bundle SDK dylibs
+# macOS
+./build/build_macos.sh && ./build/package_macos_dmg.sh
 
-### Windows
-```powershell
-.\build\build_windows.ps1
-```
-Build output: `dist/FirebrandThermalAnalysis.exe` (single file).
-Optional env vars:
-- `FLIR_SDK_WHEEL` (preferred) or `FLIR_SDK_PYTHON_DIR` + `FLIR_SDK_SHADOW_DIR`
-- `FLIR_SDK_LIB_DIR` and `FLIR_SDK_BIN_DIR` to bundle SDK DLLs
+# Windows
+.\build\build_windows.ps1 && .\build\package_windows.ps1
 
-### Linux
-```bash
-./build/build_linux.sh
-```
-Optional env vars:
-- `FLIR_SDK_WHEEL` (preferred) or `FLIR_SDK_PYTHON_DIR` + `FLIR_SDK_SHADOW_DIR`
-- `FLIR_SDK_LIB_DIR` and `FLIR_SDK_BIN_DIR` to bundle SDK shared libs
-
-## Package Installers
-### macOS (DMG)
-```bash
-./build/package_macos_dmg.sh
+# Linux
+./build/build_linux.sh && ./build/package_linux_appimage.sh
 ```
 
-### Windows (Installer)
-Install Inno Setup, then run:
-```powershell
-.\build\package_windows.ps1
-```
-This packages the single-file EXE into an optional installer.
-
-### Linux (AppImage)
-Install `appimagetool`, then run:
-```bash
-./build/package_linux_appimage.sh
-```
-The script generates a default 256x256 icon for AppImage metadata.
+CI via `.github/workflows/build.yml` builds all platforms on tag push (e.g. `v0.1.0`).
 
 ## Troubleshooting
-- **"FLIR SDK required"**: ensure the SDK wheel is installed and the build
-  scripts bundle the `fnv` package.
-- **OpenCV warning about metadata depth**: the SDK encoder falls back to 8-bit;
-  it is expected and does not affect temperature calculations.
-- **Counts vs C**: if the file has no temperature unit, values are in counts.
+- **"FLIR SDK required"**: ensure the SDK wheel is installed.
+- **Counts vs °C**: files without temperature units display raw counts.
 
 ## Repository Layout
-- `FirebrandThermalAnalysis.py`: main dashboard UI and export logic.
-- `SDK.py`: legacy tracking + detection implementation.
-- `SDK/`: FLIR SDK installers and wheels.
-- `build/`: platform build scripts and packaging helpers.
-- `dist/`: packaged outputs (generated/ignored).
-- `tests/`: unit tests (`pytest`).
-- `tutorial/`: SDK usage examples.
+| Path | Description |
+|---|---|
+| `FirebrandThermalAnalysis.py` | Main dashboard UI and export logic |
+| `SDK/` | FLIR SDK installers and wheels |
+| `build/` | Platform build and packaging scripts |
+| `tests/` | Unit tests (`pytest`) |
 
-## About the Project
-Firebrand Thermal Analysis was developed to provide researchers with a high-performance, GUI-driven tool for extracting and tracking thermal data from FLIR radiometric video files. It is built to optimize the workflow of analyzing massive datasets, automating the detection of firebrands (embers) and fuel bed hotspots in combustion experiments.
-
-**Project Team:**
-- H. Nguyen
-- J. Filippi
-- T. Penman
-- M. Peace
-- A. Filkov
+**Project Team:** H. Nguyen, J. Filippi, T. Penman, M. Peace, A. Filkov
 
 ### Companion Tools
-If you are dealing with extremely large radiometric videos (e.g., 30GB+ SEQ files), we highly recommend using our companion **[SEQ-CSQ-compressor](https://github.com/NinhGhoster/SEQ-CSQ-compressor)** tool. It uses NetCDF4 and zlib deflation to permanently reduce file sizes by up to 70%—while retaining strict physical temperature accuracy (0.01 °C) and all embedded camera metadata. Firebrand Thermal Analysis natively reads these `.nc` files for instant, random-access playback without requiring any manual decompression.
+For extremely large radiometric videos (30GB+), use the companion **[SEQ-CSQ-compressor](https://github.com/NinhGhoster/SEQ-CSQ-compressor)** to reduce file sizes by up to 70% while preserving 0.01 °C precision and all camera metadata. This app natively reads the resulting `.nc` files for instant random-access playback.
