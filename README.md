@@ -1,4 +1,8 @@
 # Firebrand Thermal Analysis
+<p align="center">
+  <img src="docs/logo.png" width="300" alt="Firebrand Thermal Analysis Logo">
+</p>
+
 A high-performance, GUI-driven dashboard for researchers to extract and track thermal data from massive FLIR radiometric files (SEQ, CSQ, JPG, ATS, SFMOV, IMG). It optimizes analysis workflows by automating the detection of firebrands (embers) and fuel bed hotspots in combustion experiments.
 
 ## Highlights
