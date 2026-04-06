@@ -399,6 +399,18 @@ class SKDDashboard(ctk.CTk):
         self.title("Firebrand Thermal Analysis")
         self.geometry("1280x800")
         self.minsize(1100, 700)
+        
+        # Load custom app icon if available
+        try:
+            import os
+            from PIL import Image, ImageTk
+            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "logo.png")
+            if os.path.exists(icon_path):
+                icon_img = ImageTk.PhotoImage(Image.open(icon_path))
+                self.iconphoto(False, icon_img)
+        except Exception as e:
+            pass
+        
         self.im = None
         self.seq_path = ""
         self.num_frames = 0
