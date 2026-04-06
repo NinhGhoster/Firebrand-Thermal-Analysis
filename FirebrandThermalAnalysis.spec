@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
+import sys
 
 datas = []
 binaries = []
@@ -7,6 +8,11 @@ hiddenimports = []
 tmp_ret = collect_all('fnv')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
+# Determine correct icon format depending on operating system
+if sys.platform == 'darwin':
+    icon_path = 'docs/logo.icns'
+else:
+    icon_path = 'docs/logo.ico'
 
 a = Analysis(
     ['FirebrandThermalAnalysis.py'],
@@ -39,6 +45,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=icon_path
 )
 coll = COLLECT(
     exe,
@@ -52,6 +59,6 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name='FirebrandThermalAnalysis.app',
-    icon=None,
+    icon=icon_path,
     bundle_identifier=None,
 )
