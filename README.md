@@ -146,15 +146,19 @@ Optional env vars for all platforms: `FLIR_SDK_WHEEL`, `FLIR_SDK_LIB_DIR`, `FLIR
 ```text
 Firebrand-Thermal-Analysis/
 ├── FirebrandThermalAnalysis.py  # main dashboard UI and export logic
-├── SDK.py                       # legacy tracking + detection implementation
+├── FTA_CLI.py                   # headless CLI tracking + export driver
 ├── SDK/                         # FLIR SDK installers and wheels
+│   └── tutorial_scripts/        # FLIR SDK python usage examples
 ├── build/                       # platform build scripts and packaging helpers
 ├── dist/                        # packaged outputs (generated/ignored)
-├── tests/                       # unit tests (pytest)
-└── tutorial/                    # SDK usage examples
+└── tests/                       # unit tests (pytest)
 ```
 
 **Project Team:** H. Nguyen, J. Filippi, T. Penman, M. Peace, A. Filkov
 
 ### Companion Tools
 If you are dealing with extremely large radiometric videos (e.g., 30GB+ SEQ files), we highly recommend using our companion **[SEQ-CSQ-compressor](https://github.com/NinhGhoster/SEQ-CSQ-compressor)** tool. It uses NetCDF4 and zlib deflation to permanently reduce file sizes by up to 70%—while retaining strict physical temperature accuracy (0.01 °C) and all embedded camera metadata. Firebrand Thermal Analysis natively reads these `.nc` files for instant, random-access playback without requiring any manual decompression.
+
+### Acknowledgments
+**[FLIR Science File SDK for Python - Getting Started](https://flir.custhelp.com/app/answers/detail/a_id/3504/~/flir-science-file-sdk-for-python---getting-started)**  
+The files provided in the `SDK/` directory and `tutorial_scripts/` originate from the official Teledyne FLIR Science File SDK for Python. They are included to evaluate and run the proprietary native formats (SEQ/CSQ/ATS).
