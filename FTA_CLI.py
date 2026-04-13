@@ -174,7 +174,6 @@ def detect_track_hotspots(file_path):
         tracked_objects = OrderedDict()
         current_frame_tracked_output = {}
         unmatched_track_ids = list(prev_tracked_objects.keys())
-        assigned = {}
         for det_idx, det in enumerate(current_frame_detections):
             best_match_id = -1
             min_dist = CENTROID_TRACKING_MAX_DIST
@@ -190,7 +189,7 @@ def detect_track_hotspots(file_path):
                 tracked_objects[best_match_id]['max_temp_history'] = tracked_objects[best_match_id].get('max_temp_history', []) + [det['max_temp']]
                 current_frame_detections[det_idx]['matched_track_id'] = best_match_id
                 current_frame_tracked_output[best_match_id] = det['max_temp']
-                assigned[best_match_id] = True
+                unmatched_track_ids.remove(best_match_id)
         # Add new tracks
         next_track_id = prev_next_track_id
         for det_idx, det in enumerate(current_frame_detections):

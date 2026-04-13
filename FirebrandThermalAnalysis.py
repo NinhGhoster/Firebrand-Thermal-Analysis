@@ -259,11 +259,13 @@ def assign_tracks(
 ) -> Tuple["OrderedDict[int, Dict[str, Any]]", List[Dict[str, Any]], int]:
     """Assign detections to existing tracks by nearest centroid, or create new tracks."""
     new_tracked: "OrderedDict[int, Dict[str, Any]]" = OrderedDict()
+    available_track_ids = list(tracked_objects.keys())
     for det in detections:
         cx, cy = det["centroid"]
         best_id = None
         best_dist = None
-        for tid, obj in tracked_objects.items():
+        for tid in available_track_ids:
+            obj = tracked_objects[tid]
             dist = np.hypot(cx - obj["centroid"][0], cy - obj["centroid"][1])
             if dist <= CENTROID_TRACKING_MAX_DIST and (best_dist is None or dist < best_dist):
                 best_dist = dist
@@ -272,6 +274,8 @@ def assign_tracks(
         if best_id is None:
             best_id = next_id
             next_id += 1
+        else:
+            available_track_ids.remove(best_id)
 
         det["track_id"] = best_id
         new_tracked[best_id] = {"centroid": det["centroid"], "last_seen": frame_idx}

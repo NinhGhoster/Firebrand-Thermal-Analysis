@@ -4,6 +4,7 @@ channels:
 dependencies:
   - python=3.12
   - pip
+  - pytest
   - pip:
       - opencv-python-headless
       - numpy
@@ -11,6 +12,5 @@ dependencies:
       - customtkinter
       - darkdetect
       - click
-      - pytest
       - netCDF4
       - pyinstaller

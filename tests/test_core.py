@@ -186,6 +186,26 @@ class TestAssignTracks:
         ids = [d["track_id"] for d in dets]
         assert len(set(ids)) == 2
 
+    def test_existing_track_is_not_reused_within_same_frame(self):
+        """A single prior track should match at most one detection per frame."""
+        tracked = OrderedDict(
+            {
+                1: {
+                    "centroid": (50, 50),
+                    "last_seen": 0,
+                }
+            }
+        )
+        dets = [self._det(52, 52), self._det(54, 54)]
+
+        tracked, dets, next_id = assign_tracks(dets, tracked, 2, 1)
+
+        ids = [d["track_id"] for d in dets]
+        assert ids[0] == 1
+        assert ids[1] == 2
+        assert len(set(ids)) == 2
+        assert next_id == 3
+
 
 # ===================================================================
 # _parse_version / _is_newer_version
