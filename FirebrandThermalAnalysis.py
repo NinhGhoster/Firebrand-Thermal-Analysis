@@ -23,15 +23,18 @@ from collections import OrderedDict
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'libs'))
+
+APP_BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+SOURCE_LIBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "libs")
+if os.path.isdir(SOURCE_LIBS_DIR) and SOURCE_LIBS_DIR not in sys.path:
+    sys.path.insert(0, SOURCE_LIBS_DIR)
+
 try:
     import customtkinter as ctk
     ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("blue")
 except ImportError:
-    print("customtkinter not found in libs/")
+    print("customtkinter not found in bundled app or local libs/")
     sys.exit(1)
 
 try:
@@ -167,8 +170,7 @@ GITHUB_API_LATEST_URL = (
 
 def _resource_path(*parts: str) -> str:
     """Return a path to a bundled resource for source and PyInstaller runs."""
-    base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base_dir, *parts)
+    return os.path.join(APP_BASE_DIR, *parts)
 
 
 def clamp_roi(
