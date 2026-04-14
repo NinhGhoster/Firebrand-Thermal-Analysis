@@ -23,6 +23,7 @@ $opts = @(
   "--name", $AppName,
   "--icon", $IconPath,
   "--add-data", $LogoData,
+  "--paths", "libs",
   "--collect-all", "fnv",
   $Entry
 )

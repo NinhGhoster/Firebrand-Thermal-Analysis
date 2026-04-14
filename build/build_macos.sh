@@ -40,6 +40,7 @@ opts=(
   --osx-bundle-identifier "com.ninhghoster.firebrandthermalanalysis"
   --icon "$ICON_PATH"
   --add-data "$LOGO_DATA"
+  --paths libs
   --collect-all fnv
   "$ENTRY"
 )

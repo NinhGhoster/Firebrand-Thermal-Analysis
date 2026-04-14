@@ -39,6 +39,7 @@ opts=(
   --name "$APP_NAME"
   --icon "$ICON_PATH"
   --add-data "$LOGO_DATA"
+  --paths libs
   --collect-all fnv
   "$ENTRY"
 )

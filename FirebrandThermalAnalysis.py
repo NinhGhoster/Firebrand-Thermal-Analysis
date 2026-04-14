@@ -25,9 +25,10 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 APP_BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-SOURCE_LIBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "libs")
-if os.path.isdir(SOURCE_LIBS_DIR) and SOURCE_LIBS_DIR not in sys.path:
-    sys.path.insert(0, SOURCE_LIBS_DIR)
+if not getattr(sys, "frozen", False):
+    SOURCE_LIBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "libs")
+    if os.path.isdir(SOURCE_LIBS_DIR) and SOURCE_LIBS_DIR not in sys.path:
+        sys.path.insert(0, SOURCE_LIBS_DIR)
 
 try:
     import customtkinter as ctk
