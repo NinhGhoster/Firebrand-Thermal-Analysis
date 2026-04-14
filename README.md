@@ -1,9 +1,16 @@
 # Firebrand Thermal Analysis
 <p align="center">
-  <img src="docs/logo.png" width="300" alt="Firebrand Thermal Analysis Logo">
+  <img src="docs/branding/logo-banner.png" width="300" alt="Firebrand Thermal Analysis Logo">
 </p>
 
 A high-performance, GUI-driven dashboard for researchers to extract and track thermal data from massive FLIR radiometric files (SEQ, CSQ, JPG, ATS, SFMOV, IMG). It optimizes analysis workflows by automating the detection of firebrands (embers) and fuel bed hotspots in combustion experiments.
+
+## Interface Preview
+<p align="center">
+  <img src="docs/screenshots/interface-overview-2026-04-14.png" alt="Firebrand Thermal Analysis interface preview" width="100%">
+</p>
+
+The dashboard combines a large thermal canvas, live tracking overlays, a temperature color bar, and a right-side control panel for ROI, playback, emissivity, export, and visualization settings.
 
 ## Highlights
 - Open one file, multiple files, or a folder of radiometric files in a single flow.
@@ -150,6 +157,9 @@ Firebrand-Thermal-Analysis/
 ├── SDK/                         # FLIR SDK installers and wheels
 │   └── tutorial_scripts/        # FLIR SDK python usage examples
 ├── build/                       # platform build scripts and packaging helpers
+├── docs/                        # logos, screenshots, and README assets
+│   ├── branding/                # source banner and square logo artwork
+│   └── screenshots/             # interface previews and captured UI examples
 ├── dist/                        # packaged outputs (generated/ignored)
 └── tests/                       # unit tests (pytest)
 ```

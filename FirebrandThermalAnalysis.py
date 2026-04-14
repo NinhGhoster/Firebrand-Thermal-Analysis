@@ -408,7 +408,12 @@ class SKDDashboard(ctk.CTk):
         try:
             import os
             from PIL import Image, ImageTk
-            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "logo.png")
+            icon_path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "docs",
+                "branding",
+                "logo-square.png",
+            )
             if os.path.exists(icon_path):
                 icon_img = ImageTk.PhotoImage(Image.open(icon_path))
                 self.iconphoto(False, icon_img)
