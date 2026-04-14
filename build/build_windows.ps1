@@ -13,8 +13,19 @@ $AppName = "FirebrandThermalAnalysis"
 $Entry = "FirebrandThermalAnalysis.py"
 $Python = $env:PYTHON_BIN
 if (-not $Python) { $Python = "python" }
+$IconPath = "docs\\logo.ico"
+$LogoData = "docs\\branding\\logo-square.png;docs\\branding"
 
-$opts = @("--windowed","--onefile","--noconfirm","--name",$AppName,"--collect-all","fnv",$Entry)
+$opts = @(
+  "--windowed",
+  "--onefile",
+  "--noconfirm",
+  "--name", $AppName,
+  "--icon", $IconPath,
+  "--add-data", $LogoData,
+  "--collect-all", "fnv",
+  $Entry
+)
 
 if ($env:FLIR_SDK_WHEEL) {
   & $Python -m pip install $env:FLIR_SDK_WHEEL

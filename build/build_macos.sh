@@ -13,6 +13,8 @@ set -euo pipefail
 APP_NAME="FirebrandThermalAnalysis"
 ENTRY="FirebrandThermalAnalysis.py"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
+ICON_PATH="docs/logo.icns"
+LOGO_DATA="docs/branding/logo-square.png:docs/branding"
 
 if [[ -n "${FLIR_SDK_WHEEL:-}" ]]; then
   "$PYTHON_BIN" -m pip install "$FLIR_SDK_WHEEL"
@@ -29,7 +31,18 @@ elif [[ -n "${FLIR_SDK_PYTHON_DIR:-}" ]]; then
   fi
 fi
 
-opts=(--windowed --onedir --noconfirm --strip --name "$APP_NAME" --collect-all fnv "$ENTRY")
+opts=(
+  --windowed
+  --onedir
+  --noconfirm
+  --strip
+  --name "$APP_NAME"
+  --osx-bundle-identifier "com.ninhghoster.firebrandthermalanalysis"
+  --icon "$ICON_PATH"
+  --add-data "$LOGO_DATA"
+  --collect-all fnv
+  "$ENTRY"
+)
 
 if [[ -n "${FLIR_SDK_LIB_DIR:-}" ]]; then
   opts+=(--add-binary "${FLIR_SDK_LIB_DIR}/*:./")

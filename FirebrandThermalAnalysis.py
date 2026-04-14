@@ -165,6 +165,12 @@ GITHUB_API_LATEST_URL = (
 )
 
 
+def _resource_path(*parts: str) -> str:
+    """Return a path to a bundled resource for source and PyInstaller runs."""
+    base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_dir, *parts)
+
+
 def clamp_roi(
     roi: Optional[Tuple[int, int, int, int]],
     width: int,
@@ -406,14 +412,8 @@ class SKDDashboard(ctk.CTk):
         
         # Load custom app icon if available
         try:
-            import os
             from PIL import Image, ImageTk
-            icon_path = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                "docs",
-                "branding",
-                "logo-square.png",
-            )
+            icon_path = _resource_path("docs", "branding", "logo-square.png")
             if os.path.exists(icon_path):
                 icon_img = ImageTk.PhotoImage(Image.open(icon_path))
                 self.iconphoto(False, icon_img)
