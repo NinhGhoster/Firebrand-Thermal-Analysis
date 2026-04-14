@@ -37,7 +37,32 @@
 ## Package Installers
 - macOS: `./build/package_macos_dmg.sh`
 - Windows: `.\build\package_windows.ps1` (requires Inno Setup; wraps the single EXE)
-- Linux: `./build/package_linux_appimage.sh` (requires `appimagetool`; includes a default icon)
+- Linux: `./build/package_linux_appimage.sh` (requires `appimagetool`; uses `docs/branding/logo-square.png`)
+
+## Release Lessons
+- Do not assume "works in conda" means "works in packaged app". Source runs can see the repo tree; PyInstaller builds cannot unless files are explicitly bundled.
+- `v0.0.3` regressed compared with `v0.0.2` because the app was changed to load branding assets from `docs/branding/logo-square.png`, but the build scripts were still using direct PyInstaller CLI builds that did not bundle that asset.
+- The packaged macOS app also failed at startup with `customtkinter not found in libs/` because the code still assumed a source-tree `libs/` folder. Packaged apps must import from bundled modules first and only fall back to local `libs/` during source runs.
+- The root rule: whenever a runtime path changes, update both the application code and every platform build script (`build_macos.sh`, `build_windows.ps1`, `build_linux.sh`, packaging scripts if relevant).
+- The build scripts currently do not use `FirebrandThermalAnalysis.spec`; they invoke PyInstaller directly. Any icon/data/bundle-identifier change must therefore be reflected in the scripts too, not just in the `.spec` file.
+- For frozen apps, use the `_MEIPASS`-aware resource helper pattern rather than `os.path.dirname(__file__)` alone.
+- If the macOS release downloads but does not open, check Gatekeeper before assuming the app is broken:
+  - `spctl -a -vv "/Applications/Firebrand Thermal Analysis.app"`
+  - `xattr -l "/Applications/Firebrand Thermal Analysis.app"`
+- A `rejected` result with `com.apple.quarantine` means macOS is blocking an unsigned/unnotarized download. That is separate from app crashes.
+- Current macOS GitHub releases are not notarized. Users may need to remove quarantine manually unless proper Apple signing/notarization is added to CI.
+- Tag-triggered GitHub releases only happen on `v*` refs. `workflow_dispatch` on `main` builds artifacts but skips the `release` job by design.
+
+## Packaging Checklist
+- Before shipping, launch the app from source and from a packaged artifact.
+- On macOS, test the real bundle binary directly:
+  - `"/Applications/Firebrand Thermal Analysis.app/Contents/MacOS/FirebrandThermalAnalysis"`
+- Verify branding assets are bundled and used on all platforms:
+  - `docs/logo.icns`
+  - `docs/logo.ico`
+  - `docs/branding/logo-square.png`
+- If updating icons or logos, regenerate platform icon files and verify the build scripts still reference the current paths.
+- If reusing an existing release tag, remember that it requires moving the tag and force-pushing it; otherwise the `release` job will publish the old artifact set.
 
 ## Lint/Test
 - Syntax: `python -m py_compile *.py`
