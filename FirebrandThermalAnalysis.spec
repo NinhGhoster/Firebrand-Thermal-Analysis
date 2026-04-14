@@ -60,5 +60,10 @@ app = BUNDLE(
     coll,
     name='FirebrandThermalAnalysis.app',
     icon=icon_path,
-    bundle_identifier=None,
+    bundle_identifier='com.ninhghoster.firebrandthermalanalysis',
+    info_plist={
+        'CFBundleName': 'FirebrandThermalAnalysis',
+        'CFBundleDisplayName': 'FirebrandThermalAnalysis',
+        'CFBundleExecutable': 'FirebrandThermalAnalysis',
+    },
 )

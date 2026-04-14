@@ -399,7 +399,7 @@ def _is_newer_version(current: str, latest: str) -> bool:
 
 class SKDDashboard(ctk.CTk):
     def __init__(self):
-        super().__init__()
+        super().__init__(className="FirebrandThermalAnalysis")
         self.title("Firebrand Thermal Analysis")
         self.geometry("1280x800")
         self.minsize(1100, 700)
