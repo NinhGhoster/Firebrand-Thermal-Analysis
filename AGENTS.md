@@ -43,6 +43,7 @@
 - Do not assume "works in conda" means "works in packaged app". Source runs can see the repo tree; PyInstaller builds cannot unless files are explicitly bundled.
 - `v0.0.3` regressed compared with `v0.0.2` because the app was changed to load branding assets from `docs/branding/logo-square.png`, but the build scripts were still using direct PyInstaller CLI builds that did not bundle that asset.
 - The packaged macOS app also failed at startup with `customtkinter not found in libs/` because the code still assumed a source-tree `libs/` folder. Packaged apps must import from bundled modules first and only fall back to local `libs/` during source runs.
+- **Critical Fix Applied:** To fix this, always guard path injections with `if not getattr(sys, "frozen", False):`. Furthermore, PyInstaller must explicitly be told to crawl local dependency folders during the build phase; you MUST include `--paths libs` in all three `build_*.sh/.ps1` scripts!
 - The root rule: whenever a runtime path changes, update both the application code and every platform build script (`build_macos.sh`, `build_windows.ps1`, `build_linux.sh`, packaging scripts if relevant).
 - The build scripts currently do not use `FirebrandThermalAnalysis.spec`; they invoke PyInstaller directly. Any icon/data/bundle-identifier change must therefore be reflected in the scripts too, not just in the `.spec` file.
 - For frozen apps, use the `_MEIPASS`-aware resource helper pattern rather than `os.path.dirname(__file__)` alone.

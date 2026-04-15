@@ -148,6 +148,7 @@ Optional env vars for all platforms: `FLIR_SDK_WHEEL`, `FLIR_SDK_LIB_DIR`, `FLIR
 - **OpenCV warning about metadata depth**: the SDK encoder falls back to 8-bit;
   it is expected and does not affect temperature calculations.
 - **Counts vs C**: if the file has no temperature unit, values are in counts.
+- **"ModuleNotFoundError: customtkinter" in frozen binaries**: if packaging your own builds, ensure Pyinstaller is run with `--paths libs` so that it bundles the local library cache properly.
 
 ## Repository Layout
 ```text
