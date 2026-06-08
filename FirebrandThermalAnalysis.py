@@ -164,7 +164,7 @@ COLORMAPS = {
     "Grayscale": None,
 }
 DEFAULT_COLORMAP = "Inferno"
-APP_VERSION = "v0.0.3"
+APP_VERSION = "v0.0.4"
 GITHUB_OWNER = "NinhGhoster"
 GITHUB_REPO = "Firebrand-Thermal-Analysis"
 GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases"
@@ -428,7 +428,8 @@ class SKDDashboard(ctk.CTk, TkinterDnD.DnDWrapper if TkinterDnD else object):
             icon_path = _resource_path("docs", "branding", "logo-square.png")
             if os.path.exists(icon_path):
                 icon_img = ImageTk.PhotoImage(Image.open(icon_path))
-                self.iconphoto(False, icon_img)
+                if sys.platform != "darwin":
+                    self.iconphoto(False, icon_img)
         except Exception as e:
             pass
         

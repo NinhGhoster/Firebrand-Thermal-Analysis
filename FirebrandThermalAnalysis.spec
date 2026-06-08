@@ -1,22 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
-import sys
 
-datas = []
+datas = [('docs/branding/logo-square.png', 'docs/branding')]
 binaries = []
 hiddenimports = []
 tmp_ret = collect_all('fnv')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('tkinterdnd2')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
-# Determine correct icon format depending on operating system
-if sys.platform == 'darwin':
-    icon_path = 'docs/logo.icns'
-else:
-    icon_path = 'docs/logo.ico'
 
 a = Analysis(
     ['FirebrandThermalAnalysis.py'],
-    pathex=[],
+    pathex=['libs'],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -37,7 +33,7 @@ exe = EXE(
     name='FirebrandThermalAnalysis',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,
+    strip=True,
     upx=True,
     console=False,
     disable_windowed_traceback=False,
@@ -45,13 +41,13 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=icon_path
+    icon=['docs/logo.icns'],
 )
 coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
-    strip=False,
+    strip=True,
     upx=True,
     upx_exclude=[],
     name='FirebrandThermalAnalysis',
@@ -59,11 +55,6 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name='FirebrandThermalAnalysis.app',
-    icon=icon_path,
+    icon='docs/logo.icns',
     bundle_identifier='com.ninhghoster.firebrandthermalanalysis',
-    info_plist={
-        'CFBundleName': 'FirebrandThermalAnalysis',
-        'CFBundleDisplayName': 'FirebrandThermalAnalysis',
-        'CFBundleExecutable': 'FirebrandThermalAnalysis',
-    },
 )
