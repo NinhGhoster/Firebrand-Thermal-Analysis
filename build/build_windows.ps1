@@ -25,6 +25,7 @@ $opts = @(
   "--add-data", $LogoData,
   "--paths", "libs",
   "--collect-all", "fnv",
+  "--collect-all", "tkinterdnd2",
   $Entry
 )
 

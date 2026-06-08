@@ -41,6 +41,7 @@ opts=(
   --add-data "$LOGO_DATA"
   --paths libs
   --collect-all fnv
+  --collect-all tkinterdnd2
   "$ENTRY"
 )
 

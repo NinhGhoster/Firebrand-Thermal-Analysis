@@ -23,7 +23,11 @@ from collections import OrderedDict
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-
+try:
+    from tkinterdnd2 import TkinterDnD, DND_FILES
+except ImportError:
+    TkinterDnD = None
+    DND_FILES = None
 APP_BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 if not getattr(sys, "frozen", False):
     SOURCE_LIBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "libs")
@@ -406,9 +410,14 @@ def _is_newer_version(current: str, latest: str) -> bool:
         return latest_parsed > cur_parsed
     return latest != current
 
-class SKDDashboard(ctk.CTk):
+class SKDDashboard(ctk.CTk, TkinterDnD.DnDWrapper if TkinterDnD else object):
     def __init__(self):
         super().__init__(className="FirebrandThermalAnalysis")
+        if TkinterDnD:
+            self.TkdndVersion = TkinterDnD._require(self)
+            self.drop_target_register(DND_FILES)
+            self.dnd_bind('<<Drop>>', self.on_file_drop)
+            
         self.title("Firebrand Thermal Analysis")
         self.geometry("1280x800")
         self.minsize(1100, 700)
@@ -482,9 +491,18 @@ class SKDDashboard(ctk.CTk):
         self.canvas = tk.Canvas(self.canvas_frame, bg="#0F172A", highlightthickness=0)
         self.canvas.pack(side="left", expand=True, fill="both")
         
-        self._cbar_width = 30
-        self.cbar_canvas = tk.Canvas(self.canvas_frame, bg="#0F172A", width=self._cbar_width, highlightthickness=0)
-        self.cbar_canvas.pack(side="right", fill="y", padx=(5, 0))
+        self._cbar_width = 45
+        self.cbar_frame = ctk.CTkFrame(self.canvas_frame, fg_color="transparent")
+        self.cbar_frame.pack(side="right", fill="y", padx=(5, 0))
+        
+        self.cbar_top_label = ctk.CTkLabel(self.cbar_frame, text="", font=("Fira Code", 14, "bold"), text_color="white")
+        self.cbar_top_label.pack(side="top", pady=(0, 5))
+        
+        self.cbar_canvas = tk.Canvas(self.cbar_frame, bg="#0F172A", width=self._cbar_width, highlightthickness=0)
+        self.cbar_canvas.pack(side="top", expand=True, fill="y")
+        
+        self.cbar_bottom_label = ctk.CTkLabel(self.cbar_frame, text="", font=("Fira Code", 14, "bold"), text_color="white")
+        self.cbar_bottom_label.pack(side="bottom", pady=(5, 0))
 
         # -- Bottom Control Pod --
         self.bottom_pod = ctk.CTkFrame(self, corner_radius=10, height=80, fg_color="#1E293B")
@@ -797,15 +815,14 @@ class SKDDashboard(ctk.CTk):
             bar_rgb = cv2.cvtColor(bar_bgr, cv2.COLOR_BGR2RGB)
             self._cbar_pil = Image.fromarray(bar_rgb)
             self._cbar_cache_key = cache_key
-        # Draw cached image + labels
+        # Draw cached image
         self.cbar_canvas.delete("all")
         self._cbar_tk = ImageTk.PhotoImage(self._cbar_pil)
         self.cbar_canvas.create_image(0, 0, image=self._cbar_tk, anchor=tk.NW)
-        bar_w = self._cbar_width
-        self.cbar_canvas.create_text(bar_w // 2, 10, text=f"{tmax:.0f}\u00b0",
-                                     fill="white", font=("TkDefaultFont", 8))
-        self.cbar_canvas.create_text(bar_w // 2, h - 10, text=f"{tmin:.0f}\u00b0",
-                                     fill="white", font=("TkDefaultFont", 8))
+        
+        # Update separate labels
+        self.cbar_top_label.configure(text=f"{tmax:.0f}\u00b0")
+        self.cbar_bottom_label.configure(text=f"{tmin:.0f}\u00b0")
 
     def on_check_updates(self):
         try:
@@ -1083,6 +1100,15 @@ class SKDDashboard(ctk.CTk):
         if not seq_paths:
             return
         self._set_batch_paths(seq_paths)
+
+    def on_file_drop(self, event):
+        path = event.data
+        if path.startswith('{') and path.endswith('}'):
+            path = path[1:-1]
+        elif path.startswith("'") and path.endswith("'"):
+            path = path[1:-1]
+        self.on_open(path)
+
     def on_open_folder(self, folder_override: Optional[str] = None):
         folder = folder_override or filedialog.askdirectory(title="Select folder containing radiometric files")
         if not folder:
@@ -1479,7 +1505,10 @@ class SKDDashboard(ctk.CTk):
                 cv2.rectangle(vis, (x, y), (x+w, y+h), (0, 0, 255), 1)
                 cv2.circle(vis, (cx, cy), 3, (255,255,255), -1)
                 prefix = "Detect" if d.get('new_track') else "Tracking"
-                cv2.putText(vis, f"{prefix}: {d['max_temp']:.1f}{self.unit_label}", (x, max(0, y-3)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+                text = f"{prefix}: {d['max_temp']:.1f}{self.unit_label}"
+                org = (x, max(0, y-3))
+                cv2.putText(vis, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3, cv2.LINE_AA)
+                cv2.putText(vis, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
 
             # --- Zoom / Pan ---
             disp_w, disp_h = self._fit_display_size()
@@ -1577,7 +1606,10 @@ class SKDDashboard(ctk.CTk):
                 cv2.rectangle(vis, (x, y), (x+w, y+h), (0, 0, 255), 1)
                 cv2.circle(vis, (cx, cy), 3, (255,255,255), -1)
                 prefix = "Detect" if d.get('new_track') else "Tracking"
-                cv2.putText(vis, f"{prefix}: {d['max_temp']:.1f}C", (x, max(0, y-3)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+                text = f"{prefix}: {d['max_temp']:.1f}{self.unit_label}"
+                org = (x, max(0, y-3))
+                cv2.putText(vis, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3, cv2.LINE_AA)
+                cv2.putText(vis, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
             # Save
             base = os.path.splitext(os.path.basename(self.seq_path))[0]
             out_dir = os.path.dirname(self.seq_path)

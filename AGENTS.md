@@ -40,6 +40,7 @@
 - Linux: `./build/package_linux_appimage.sh` (requires `appimagetool`; uses `docs/branding/logo-square.png`)
 
 ## Release Lessons
+- `v0.0.4` introduces macOS compatibility fixes for Drag and Drop (`tkinterdnd2-universal`) and refined UI legibility (separated color bar limits, outlined canvas overlays).
 - Do not assume "works in conda" means "works in packaged app". Source runs can see the repo tree; PyInstaller builds cannot unless files are explicitly bundled.
 - `v0.0.3` regressed compared with `v0.0.2` because the app was changed to load branding assets from `docs/branding/logo-square.png`, but the build scripts were still using direct PyInstaller CLI builds that did not bundle that asset.
 - The packaged macOS app also failed at startup with `customtkinter not found in libs/` because the code still assumed a source-tree `libs/` folder. Packaged apps must import from bundled modules first and only fall back to local `libs/` during source runs.

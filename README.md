@@ -14,13 +14,14 @@ The dashboard combines a large thermal canvas, live tracking overlays, a tempera
 
 ## Highlights
 - Open one file, multiple files, or a folder of radiometric files in a single flow.
+- **Drag and Drop support** for instantly loading sequences.
 - Batch CSV export (parallel across files) using shared configuration, ROI, and export range.
 - 1-based start/end trim with `max` to use each file's full length.
 - Per-detection stats: max/min/avg/median temperature, area, and bbox.
 - Export current frame to JPG with ROI and detection overlays.
 - Thermal colormaps (Inferno, Jet, Hot, Magma, Plasma, Bone, Turbo, Grayscale).
 - Interactive zoom & pan with mouse hover temperature readout.
-- Color bar showing temperature-to-color gradient.
+- Redesigned, highly-legible color bar and on-canvas firebrand temperature labels.
 - Comprehensive keyboard shortcuts for playback, zoom, colormaps, and fullscreen.
 
 ## Compressed File Support
