@@ -51,13 +51,13 @@
 - Linux: `./build/package_linux_appimage.sh` (requires `appimagetool`; uses `docs/branding/logo-square.png`)
 
 ## Release Lessons
-- `2026.06.23` switches to CalVer date-based versioning (no `v` prefix). Adds `--collect-all numpy` to all build scripts and pins `numpy<3` in `environment.yml` and CI to fix the Windows `ModuleNotFoundError: No module named 'numpy._core._multiarray_umath'` crash. Introduces auto-versioning from git tags — `APP_VERSION` is no longer hardcoded.
+- `2026.06.23` switches to CalVer date-based versioning (no `v` prefix). Adds `--collect-all numpy` to all build scripts (later reverted) and pins `numpy<2` in `environment.yml` and CI to fix the Windows `ModuleNotFoundError: No module named 'numpy._core._multiarray_umath'` crash. Introduces auto-versioning from git tags — `APP_VERSION` is no longer hardcoded.
 - `0.0.4` introduces macOS compatibility fixes for Drag and Drop (`tkinterdnd2-universal`) and refined UI legibility (separated color bar limits, outlined canvas overlays).
 - `0.0.3` regressed compared with `0.0.2` because the app was changed to load branding assets from `docs/branding/logo-square.png`, but the build scripts were still using direct PyInstaller CLI builds that did not bundle that asset. The packaged macOS app also failed at startup with `customtkinter not found in libs/` because the code still assumed a source-tree `libs/` folder. Packaged apps must import from bundled modules first and only fall back to local `libs/` during source runs.
 - `0.0.2` initial packaged release with PyInstaller build scripts for macOS, Windows, and Linux.
 
 ## Hard Lessons
-- **numpy 2.x + PyInstaller:** numpy 2.x relocated internal C extensions from `numpy.core` to `numpy._core`. PyInstaller's default hooks may not fully bundle `numpy._core._multiarray_umath`, causing `ModuleNotFoundError` at runtime (especially on Windows `--onefile`). Fix: add `--collect-all numpy` to all build scripts. Pin `numpy<3` to prevent future major-version reshuffles from breaking the build.
+- **numpy 2.x + PyInstaller:** numpy 2.x is currently unstable with PyInstaller on Windows because of how its new `_core` C-extensions load DLLs. Using `--collect-all numpy` breaks the build even further by copying `.lib` files as data instead of properly packing `.pyd` extensions, resulting in `Incompatible compiled module files: _multiarray_umath.cp312-win_amd64.lib`. Fix: DO NOT use `--collect-all numpy`. Instead, pin `numpy<2` in CI and `environment.yml`. Numpy 1.x works perfectly with PyInstaller.
 - Do not assume "works in conda" means "works in packaged app". Source runs can see the repo tree; PyInstaller builds cannot unless files are explicitly bundled.
 - Always guard path injections with `if not getattr(sys, "frozen", False):`. PyInstaller must explicitly be told to crawl local dependency folders during the build phase; you MUST include `--paths libs` in all three `build_*.sh/.ps1` scripts!
 - The root rule: whenever a runtime path changes, update both the application code and every platform build script (`build_macos.sh`, `build_windows.ps1`, `build_linux.sh`, packaging scripts if relevant).

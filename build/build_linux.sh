@@ -46,7 +46,6 @@ opts=(
   --add-data "$LOGO_DATA"
   --add-data "VERSION:."
   --paths libs
-  --collect-all numpy
   --collect-all fnv
   --collect-all tkinterdnd2
   "$ENTRY"

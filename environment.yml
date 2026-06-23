@@ -7,7 +7,7 @@ dependencies:
   - pytest
   - pip:
       - opencv-python-headless
-      - "numpy<3"
+      - "numpy<2"
       - pillow
       - customtkinter
       - darkdetect
