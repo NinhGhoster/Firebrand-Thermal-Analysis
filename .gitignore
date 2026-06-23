@@ -17,3 +17,4 @@ venv/
 /build/AppDir/
 /build/_dmg/
 /dist/
+/VERSION

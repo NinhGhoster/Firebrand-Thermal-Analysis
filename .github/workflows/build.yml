@@ -14,6 +14,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -23,6 +25,8 @@ jobs:
           python -m pip install "numpy<3" opencv-python-headless pillow pyinstaller
           python -m pip install "SDK/FileSDK-2024.7.1-cp312-cp312-macosx_10_14_universal2.whl"
       - name: Build app
+        env:
+          APP_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: PYTHON_BIN=python bash build/build_macos.sh
       - name: Package DMG
         run: bash build/package_macos_dmg.sh
@@ -36,6 +40,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -47,6 +53,7 @@ jobs:
       - name: Build app
         env:
           PYTHON_BIN: python
+          APP_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: .\build\build_windows.ps1
         shell: pwsh
       - name: Upload artifacts
@@ -59,6 +66,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -78,6 +87,8 @@ jobs:
           echo "$PWD" >> "$GITHUB_PATH"
           echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
       - name: Build app
+        env:
+          APP_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: PYTHON_BIN=python bash build/build_linux.sh
       - name: Package AppImage
         run: bash build/package_linux_appimage.sh

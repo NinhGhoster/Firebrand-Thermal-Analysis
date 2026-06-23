@@ -13,7 +13,11 @@
 ## Versioning
 - Versions follow **CalVer** date-based format: `YYYY.MM.DD` (e.g., `2026.06.23`).
 - Git tags use the bare version number: `2026.06.23` (no `v` prefix).
-- The `APP_VERSION` constant in `FirebrandThermalAnalysis.py` and `MyAppVersion` in `installer_windows.iss` must both match the tag.
+- The `APP_VERSION` constant in `FirebrandThermalAnalysis.py` is **auto-detected** — no manual editing needed:
+  1. Packaged builds read a `VERSION` file bundled by the build scripts (written from the git tag).
+  2. Source runs call `git describe --tags --abbrev=0` at startup.
+  3. Falls back to `"dev"` if neither is available.
+- Build scripts auto-write the `VERSION` file from `APP_VERSION` env var (set by CI from the tag) or from `git describe`.
 - The existing `_parse_version` / `_is_newer_version` logic handles CalVer correctly — later dates naturally compare as newer.
 - If multiple releases happen on the same day, append a patch suffix: `YYYY.MM.DD.1`, `YYYY.MM.DD.2`, etc.
 
@@ -47,13 +51,15 @@
 - Linux: `./build/package_linux_appimage.sh` (requires `appimagetool`; uses `docs/branding/logo-square.png`)
 
 ## Release Lessons
-- `2026.06.23` switches to CalVer date-based versioning (no `v` prefix). Adds `--collect-all numpy` to all build scripts and pins `numpy<3` in `environment.yml` and CI to fix the Windows `ModuleNotFoundError: No module named 'numpy._core._multiarray_umath'` crash.
-- `v0.0.4` introduces macOS compatibility fixes for Drag and Drop (`tkinterdnd2-universal`) and refined UI legibility (separated color bar limits, outlined canvas overlays).
+- `2026.06.23` switches to CalVer date-based versioning (no `v` prefix). Adds `--collect-all numpy` to all build scripts and pins `numpy<3` in `environment.yml` and CI to fix the Windows `ModuleNotFoundError: No module named 'numpy._core._multiarray_umath'` crash. Introduces auto-versioning from git tags — `APP_VERSION` is no longer hardcoded.
+- `0.0.4` introduces macOS compatibility fixes for Drag and Drop (`tkinterdnd2-universal`) and refined UI legibility (separated color bar limits, outlined canvas overlays).
+- `0.0.3` regressed compared with `0.0.2` because the app was changed to load branding assets from `docs/branding/logo-square.png`, but the build scripts were still using direct PyInstaller CLI builds that did not bundle that asset. The packaged macOS app also failed at startup with `customtkinter not found in libs/` because the code still assumed a source-tree `libs/` folder. Packaged apps must import from bundled modules first and only fall back to local `libs/` during source runs.
+- `0.0.2` initial packaged release with PyInstaller build scripts for macOS, Windows, and Linux.
+
+## Hard Lessons
 - **numpy 2.x + PyInstaller:** numpy 2.x relocated internal C extensions from `numpy.core` to `numpy._core`. PyInstaller's default hooks may not fully bundle `numpy._core._multiarray_umath`, causing `ModuleNotFoundError` at runtime (especially on Windows `--onefile`). Fix: add `--collect-all numpy` to all build scripts. Pin `numpy<3` to prevent future major-version reshuffles from breaking the build.
 - Do not assume "works in conda" means "works in packaged app". Source runs can see the repo tree; PyInstaller builds cannot unless files are explicitly bundled.
-- `v0.0.3` regressed compared with `v0.0.2` because the app was changed to load branding assets from `docs/branding/logo-square.png`, but the build scripts were still using direct PyInstaller CLI builds that did not bundle that asset.
-- The packaged macOS app also failed at startup with `customtkinter not found in libs/` because the code still assumed a source-tree `libs/` folder. Packaged apps must import from bundled modules first and only fall back to local `libs/` during source runs.
-- **Critical Fix Applied:** To fix this, always guard path injections with `if not getattr(sys, "frozen", False):`. Furthermore, PyInstaller must explicitly be told to crawl local dependency folders during the build phase; you MUST include `--paths libs` in all three `build_*.sh/.ps1` scripts!
+- Always guard path injections with `if not getattr(sys, "frozen", False):`. PyInstaller must explicitly be told to crawl local dependency folders during the build phase; you MUST include `--paths libs` in all three `build_*.sh/.ps1` scripts!
 - The root rule: whenever a runtime path changes, update both the application code and every platform build script (`build_macos.sh`, `build_windows.ps1`, `build_linux.sh`, packaging scripts if relevant).
 - The build scripts currently do not use `FirebrandThermalAnalysis.spec`; they invoke PyInstaller directly. Any icon/data/bundle-identifier change must therefore be reflected in the scripts too, not just in the `.spec` file.
 - For frozen apps, use the `_MEIPASS`-aware resource helper pattern rather than `os.path.dirname(__file__)` alone.
@@ -74,7 +80,7 @@
   - `docs/branding/logo-square.png`
 - If updating icons or logos, regenerate platform icon files and verify the build scripts still reference the current paths.
 - If reusing an existing release tag, remember that it requires moving the tag and force-pushing it; otherwise the `release` job will publish the old artifact set.
-- When cutting a release, update version in **all three** places: `APP_VERSION` in `FirebrandThermalAnalysis.py`, `MyAppVersion` in `build/installer_windows.iss`, and the git tag.
+- When cutting a release, just create a CalVer git tag (e.g., `2026.06.23`) — version is auto-detected from the tag. Only `MyAppVersion` in `build/installer_windows.iss` still needs a manual update for the Windows installer.
 
 ## Lint/Test
 - Syntax: `python -m py_compile *.py`

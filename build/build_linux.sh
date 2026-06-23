@@ -16,6 +16,11 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 ICON_PATH="docs/branding/logo-square.png"
 LOGO_DATA="docs/branding/logo-square.png:docs/branding"
 
+# Write VERSION file from git tag (CI sets APP_VERSION env var, else use git)
+VERSION="${APP_VERSION:-$(git describe --tags --abbrev=0 2>/dev/null || echo dev)}"
+printf '%s' "$VERSION" > VERSION
+echo "Building version: $VERSION"
+
 if [[ -n "${FLIR_SDK_WHEEL:-}" ]]; then
   "$PYTHON_BIN" -m pip install "$FLIR_SDK_WHEEL"
 elif [[ -n "${FLIR_SDK_PYTHON_DIR:-}" ]]; then
@@ -39,6 +44,7 @@ opts=(
   --name "$APP_NAME"
   --icon "$ICON_PATH"
   --add-data "$LOGO_DATA"
+  --add-data "VERSION:."
   --paths libs
   --collect-all numpy
   --collect-all fnv

@@ -16,6 +16,15 @@ if (-not $Python) { $Python = "python" }
 $IconPath = "docs\\logo.ico"
 $LogoData = "docs\\branding\\logo-square.png;docs\\branding"
 
+# Write VERSION file from git tag (CI sets APP_VERSION env var, else use git)
+$Version = $env:APP_VERSION
+if (-not $Version) {
+  $Version = (git describe --tags --abbrev=0 2>$null)
+}
+if (-not $Version) { $Version = "dev" }
+Set-Content -Path "VERSION" -Value $Version -NoNewline
+Write-Host "Building version: $Version"
+
 $opts = @(
   "--windowed",
   "--onefile",
@@ -23,6 +32,7 @@ $opts = @(
   "--name", $AppName,
   "--icon", $IconPath,
   "--add-data", $LogoData,
+  "--add-data", "VERSION;.",
   "--paths", "libs",
   "--collect-all", "numpy",
   "--collect-all", "fnv",

@@ -164,7 +164,45 @@ COLORMAPS = {
     "Grayscale": None,
 }
 DEFAULT_COLORMAP = "Inferno"
-APP_VERSION = "2026.06.23"
+def _get_version() -> str:
+    """Derive app version automatically.
+
+    Resolution order:
+    1. ``VERSION`` file next to the executable (packaged / frozen builds).
+    2. Latest git tag via ``git describe --tags`` (source / dev runs).
+    3. Literal ``"dev"`` as a last-resort fallback.
+    """
+    # 1. Bundled VERSION file (written by build scripts from the git tag)
+    version_file = os.path.join(APP_BASE_DIR, "VERSION")
+    if os.path.isfile(version_file):
+        try:
+            with open(version_file, "r", encoding="utf-8") as fh:
+                ver = fh.read().strip()
+            if ver:
+                return ver
+        except OSError:
+            pass
+
+    # 2. Git tag (source runs)
+    if not getattr(sys, "frozen", False):
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["git", "describe", "--tags", "--abbrev=0"],
+                capture_output=True, text=True, timeout=5,
+                cwd=os.path.dirname(os.path.abspath(__file__)),
+            )
+            tag = result.stdout.strip()
+            if tag:
+                return tag
+        except Exception:
+            pass
+
+    # 3. Fallback
+    return "dev"
+
+
+APP_VERSION = _get_version()
 GITHUB_OWNER = "NinhGhoster"
 GITHUB_REPO = "Firebrand-Thermal-Analysis"
 GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases"
