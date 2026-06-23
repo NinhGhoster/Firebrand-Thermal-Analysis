@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{background:var(--neutral-1000);margin:0;padding:0;overflow:hidden}
+  body{width:700px;padding:24px;font-family:var(--font-ui);color:var(--fg-primary)}
+  .row{display:flex;gap:12px;align-items:stretch}
+  .col{display:flex;flex-direction:column;gap:8px;flex:1}
+  .lbl{font:500 11px/1 var(--font-ui);color:var(--fg-muted);letter-spacing:.04em;text-transform:uppercase}
+  .hex{font:500 11px/1 var(--font-data);color:var(--fg-muted);font-variant-numeric:tabular-nums}
+  .name{font:500 13px/1 var(--font-ui);color:var(--fg-primary)}
+  .swatch{height:64px;border-radius:6px;border:1px solid rgba(255,255,255,.04)}
+  .chip{display:flex;flex-direction:column;gap:6px;flex:1}
+  .meta{display:flex;justify-content:space-between;align-items:baseline}
+  .grid-bg{background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:8px 8px}
+</style>
+</head>
+<body>
+<div style="display:flex;gap:12px;align-items:stretch;height:200px">
+  <div style="width:36px;background:var(--gradient-inferno);border-radius:4px;position:relative;overflow:hidden">
+    <div style="position:absolute;top:6px;left:0;right:0;text-align:center;font:600 10px var(--font-data);color:#0B0D10">795°</div>
+    <div style="position:absolute;bottom:6px;left:0;right:0;text-align:center;font:600 10px var(--font-data);color:#F2F4F8">0°</div>
+  </div>
+  <div style="flex:1;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;padding:14px 16px;display:flex;flex-direction:column;justify-content:space-between">
+    <div>
+      <div style="font:600 14px var(--font-ui);color:var(--fg-primary);margin-bottom:6px">Live Color Bar</div>
+      <div style="font:400 12px/1.5 var(--font-ui);color:var(--fg-muted)">Pinned to the right of the canvas whenever a file is loaded. 36px wide. Min/max temperature labels in Fira Code, contrast-flipped against the local gradient stop.</div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font:400 10px var(--font-data);color:var(--fg-muted)">
+      <span>--layout-colorbar</span><span>36px</span>
+    </div>
+  </div>
+</div></body></html>

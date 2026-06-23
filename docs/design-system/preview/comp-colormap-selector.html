@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{background:var(--neutral-1000);margin:0;padding:0;overflow:hidden}
+  body{width:700px;padding:24px;font-family:var(--font-ui);color:var(--fg-primary)}
+  .row{display:flex;gap:12px;align-items:stretch}
+  .col{display:flex;flex-direction:column;gap:8px;flex:1}
+  .lbl{font:500 11px/1 var(--font-ui);color:var(--fg-muted);letter-spacing:.04em;text-transform:uppercase}
+  .hex{font:500 11px/1 var(--font-data);color:var(--fg-muted);font-variant-numeric:tabular-nums}
+  .name{font:500 13px/1 var(--font-ui);color:var(--fg-primary)}
+  .swatch{height:64px;border-radius:6px;border:1px solid rgba(255,255,255,.04)}
+  .chip{display:flex;flex-direction:column;gap:6px;flex:1}
+  .meta{display:flex;justify-content:space-between;align-items:baseline}
+  .grid-bg{background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:8px 8px}
+</style>
+</head>
+<body>
+<div style="display:flex;flex-direction:column;gap:6px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:8px;padding:8px">
+
+  <div style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:5px;background:var(--neutral-700);box-shadow:inset 2px 0 0 var(--ember-500);cursor:pointer">
+    <span style="font-family:var(--font-data);font-size:10px;color:var(--fg-muted);width:14px">1</span>
+    <span style="font:500 12px var(--font-ui);color:var(--fg-primary);width:80px">Inferno</span>
+    <div style="flex:1;height:14px;border-radius:3px;background:linear-gradient(90deg,#000004,#1B0C42,#4A0C6B,#781C6D,#A52C60,#CF4446,#ED6925,#FB9A06,#F7D03C,#FCFFA4);border:1px solid rgba(255,255,255,.06)"></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:5px;;cursor:pointer">
+    <span style="font-family:var(--font-data);font-size:10px;color:var(--fg-muted);width:14px">2</span>
+    <span style="font:500 12px var(--font-ui);color:var(--fg-secondary);width:80px">Jet</span>
+    <div style="flex:1;height:14px;border-radius:3px;background:linear-gradient(90deg,#00008F,#0020FF,#00FFFF,#FFFF00,#FF0000,#7F0000);border:1px solid rgba(255,255,255,.06)"></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:5px;;cursor:pointer">
+    <span style="font-family:var(--font-data);font-size:10px;color:var(--fg-muted);width:14px">3</span>
+    <span style="font:500 12px var(--font-ui);color:var(--fg-secondary);width:80px">Hot</span>
+    <div style="flex:1;height:14px;border-radius:3px;background:linear-gradient(90deg,#000000,#7F0000,#FF0000,#FF7F00,#FFFF00,#FFFFFF);border:1px solid rgba(255,255,255,.06)"></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:5px;;cursor:pointer">
+    <span style="font-family:var(--font-data);font-size:10px;color:var(--fg-muted);width:14px">4</span>
+    <span style="font:500 12px var(--font-ui);color:var(--fg-secondary);width:80px">Magma</span>
+    <div style="flex:1;height:14px;border-radius:3px;background:linear-gradient(90deg,#000004,#180F3D,#451A6B,#771C6D,#A6225C,#CF4148,#F0746E,#FB9C7C,#FDD9A0,#FCFDBF);border:1px solid rgba(255,255,255,.06)"></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:5px;;cursor:pointer">
+    <span style="font-family:var(--font-data);font-size:10px;color:var(--fg-muted);width:14px">5</span>
+    <span style="font:500 12px var(--font-ui);color:var(--fg-secondary);width:80px">Plasma</span>
+    <div style="flex:1;height:14px;border-radius:3px;background:linear-gradient(90deg,#0D0887,#42039D,#6A00A8,#900DA4,#B12A90,#CB4779,#E16462,#F1844B,#FCA636,#FCCE25,#F0F921);border:1px solid rgba(255,255,255,.06)"></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:5px;;cursor:pointer">
+    <span style="font-family:var(--font-data);font-size:10px;color:var(--fg-muted);width:14px">6</span>
+    <span style="font:500 12px var(--font-ui);color:var(--fg-secondary);width:80px">Bone</span>
+    <div style="flex:1;height:14px;border-radius:3px;background:linear-gradient(90deg,#000000,#2B2B3C,#56566D,#80808E,#B7BFC9,#FFFFFF);border:1px solid rgba(255,255,255,.06)"></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:5px;;cursor:pointer">
+    <span style="font-family:var(--font-data);font-size:10px;color:var(--fg-muted);width:14px">7</span>
+    <span style="font:500 12px var(--font-ui);color:var(--fg-secondary);width:80px">Turbo</span>
+    <div style="flex:1;height:14px;border-radius:3px;background:linear-gradient(90deg,#30123B,#4146A6,#3F9EF7,#1AD0CA,#41F087,#A8F03B,#F5BD24,#FF7900,#C8260C,#7A0403);border:1px solid rgba(255,255,255,.06)"></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:5px;;cursor:pointer">
+    <span style="font-family:var(--font-data);font-size:10px;color:var(--fg-muted);width:14px">8</span>
+    <span style="font:500 12px var(--font-ui);color:var(--fg-secondary);width:80px">Grayscale</span>
+    <div style="flex:1;height:14px;border-radius:3px;background:linear-gradient(90deg,#000,#FFF);border:1px solid rgba(255,255,255,.06)"></div>
+  </div>
+</div></body></html>

@@ -40,6 +40,7 @@ opts=(
   --icon "$ICON_PATH"
   --add-data "$LOGO_DATA"
   --paths libs
+  --collect-all numpy
   --collect-all fnv
   --collect-all tkinterdnd2
   "$ENTRY"

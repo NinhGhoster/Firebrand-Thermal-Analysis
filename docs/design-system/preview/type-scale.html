@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{background:var(--neutral-1000);margin:0;padding:0;overflow:hidden}
+  body{width:700px;padding:24px;font-family:var(--font-ui);color:var(--fg-primary)}
+  .row{display:flex;gap:12px;align-items:stretch}
+  .col{display:flex;flex-direction:column;gap:8px;flex:1}
+  .lbl{font:500 11px/1 var(--font-ui);color:var(--fg-muted);letter-spacing:.04em;text-transform:uppercase}
+  .hex{font:500 11px/1 var(--font-data);color:var(--fg-muted);font-variant-numeric:tabular-nums}
+  .name{font:500 13px/1 var(--font-ui);color:var(--fg-primary)}
+  .swatch{height:64px;border-radius:6px;border:1px solid rgba(255,255,255,.04)}
+  .chip{display:flex;flex-direction:column;gap:6px;flex:1}
+  .meta{display:flex;justify-content:space-between;align-items:baseline}
+  .grid-bg{background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:8px 8px}
+</style>
+</head>
+<body>
+<div style="display:flex;flex-direction:column;gap:6px;font-family:var(--font-data);font-variant-numeric:tabular-nums">
+
+  <div style="display:flex;align-items:center;gap:18px;padding:4px 0;border-bottom:1px solid var(--border-default)">
+    <div style="width:48px;color:var(--fg-muted);font-size:11px;text-align:right">44px</div>
+    <div style="width:60px;color:var(--ember-500);font-size:11px">--text-4xl</div>
+    <div style="flex:1;color:var(--fg-primary);font-family:var(--font-ui);font-size:44px;line-height:1">The quick brown</div>
+    <div style="color:var(--fg-muted);font-size:11px">hero display</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:18px;padding:4px 0;border-bottom:1px solid var(--border-default)">
+    <div style="width:48px;color:var(--fg-muted);font-size:11px;text-align:right">32px</div>
+    <div style="width:60px;color:var(--ember-500);font-size:11px">--text-3xl</div>
+    <div style="flex:1;color:var(--fg-primary);font-family:var(--font-ui);font-size:32px;line-height:1">The quick brown</div>
+    <div style="color:var(--fg-muted);font-size:11px">H1</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:18px;padding:4px 0;border-bottom:1px solid var(--border-default)">
+    <div style="width:48px;color:var(--fg-muted);font-size:11px;text-align:right">24px</div>
+    <div style="width:60px;color:var(--ember-500);font-size:11px">--text-2xl</div>
+    <div style="flex:1;color:var(--fg-primary);font-family:var(--font-ui);font-size:24px;line-height:1">The quick brown</div>
+    <div style="color:var(--fg-muted);font-size:11px">H2</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:18px;padding:4px 0;border-bottom:1px solid var(--border-default)">
+    <div style="width:48px;color:var(--fg-muted);font-size:11px;text-align:right">20px</div>
+    <div style="width:60px;color:var(--ember-500);font-size:11px">--text-xl</div>
+    <div style="flex:1;color:var(--fg-primary);font-family:var(--font-ui);font-size:20px;line-height:1">The quick brown</div>
+    <div style="color:var(--fg-muted);font-size:11px">H3</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:18px;padding:4px 0;border-bottom:1px solid var(--border-default)">
+    <div style="width:48px;color:var(--fg-muted);font-size:11px;text-align:right">16px</div>
+    <div style="width:60px;color:var(--ember-500);font-size:11px">--text-lg</div>
+    <div style="flex:1;color:var(--fg-primary);font-family:var(--font-ui);font-size:16px;line-height:1">The quick brown</div>
+    <div style="color:var(--fg-muted);font-size:11px">card title</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:18px;padding:4px 0;border-bottom:1px solid var(--border-default)">
+    <div style="width:48px;color:var(--fg-muted);font-size:11px;text-align:right">14px</div>
+    <div style="width:60px;color:var(--ember-500);font-size:11px">--text-md</div>
+    <div style="flex:1;color:var(--fg-primary);font-family:var(--font-ui);font-size:14px;line-height:1">The quick brown</div>
+    <div style="color:var(--fg-muted);font-size:11px">section header</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:18px;padding:4px 0;border-bottom:1px solid var(--border-default)">
+    <div style="width:48px;color:var(--fg-muted);font-size:11px;text-align:right">13px</div>
+    <div style="width:60px;color:var(--ember-500);font-size:11px">--text-base</div>
+    <div style="flex:1;color:var(--fg-primary);font-family:var(--font-ui);font-size:13px;line-height:1">The quick brown</div>
+    <div style="color:var(--fg-muted);font-size:11px">default UI</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:18px;padding:4px 0;border-bottom:1px solid var(--border-default)">
+    <div style="width:48px;color:var(--fg-muted);font-size:11px;text-align:right">12px</div>
+    <div style="width:60px;color:var(--ember-500);font-size:11px">--text-sm</div>
+    <div style="flex:1;color:var(--fg-primary);font-family:var(--font-ui);font-size:12px;line-height:1">The quick brown</div>
+    <div style="color:var(--fg-muted);font-size:11px">secondary label</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:18px;padding:4px 0;border-bottom:1px solid var(--border-default)">
+    <div style="width:48px;color:var(--fg-muted);font-size:11px;text-align:right">11px</div>
+    <div style="width:60px;color:var(--ember-500);font-size:11px">--text-xs</div>
+    <div style="flex:1;color:var(--fg-primary);font-family:var(--font-ui);font-size:11px;line-height:1">The quick brown</div>
+    <div style="color:var(--fg-muted);font-size:11px">caption · meta</div>
+  </div>
+</div></body></html>

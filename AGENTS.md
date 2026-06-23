@@ -10,6 +10,13 @@
 - Canvas supports zoom (scroll / +/-), pan (middle-drag), and hover temperature readout.
 - Color bar displays temperature-to-color gradient alongside the canvas.
 
+## Versioning
+- Versions follow **CalVer** date-based format: `YYYY.MM.DD` (e.g., `2026.06.23`).
+- Git tags use the bare version number: `2026.06.23` (no `v` prefix).
+- The `APP_VERSION` constant in `FirebrandThermalAnalysis.py` and `MyAppVersion` in `installer_windows.iss` must both match the tag.
+- The existing `_parse_version` / `_is_newer_version` logic handles CalVer correctly — later dates naturally compare as newer.
+- If multiple releases happen on the same day, append a patch suffix: `YYYY.MM.DD.1`, `YYYY.MM.DD.2`, etc.
+
 ## Setup
 - Install FLIR SDK from `SDK/`.
 - Create environment: `conda env create -f environment.yml` (includes `customtkinter`).
@@ -28,11 +35,11 @@
 - macOS: `./build/build_macos.sh`
 - Windows: `.\build\build_windows.ps1` (single-file `dist/FirebrandThermalAnalysis.exe`)
 - Linux: `./build/build_linux.sh`
-- GitHub Actions: `.github/workflows/build.yml` (runs on `workflow_dispatch` and `v*` tags)
+- GitHub Actions: `.github/workflows/build.yml` (runs on `workflow_dispatch` and CalVer tags like `2026.06.23`)
 - Optional env vars:
   - `FLIR_SDK_WHEEL` (preferred) or `FLIR_SDK_PYTHON_DIR` + `FLIR_SDK_SHADOW_DIR`
   - `FLIR_SDK_LIB_DIR` + `FLIR_SDK_BIN_DIR` for SDK runtime libraries
-- Build scripts include `--collect-all fnv` to bundle the SDK Python package.
+- Build scripts include `--collect-all numpy`, `--collect-all fnv`, and `--collect-all tkinterdnd2` to bundle critical packages.
 
 ## Package Installers
 - macOS: `./build/package_macos_dmg.sh`
@@ -40,7 +47,9 @@
 - Linux: `./build/package_linux_appimage.sh` (requires `appimagetool`; uses `docs/branding/logo-square.png`)
 
 ## Release Lessons
+- `2026.06.23` switches to CalVer date-based versioning (no `v` prefix). Adds `--collect-all numpy` to all build scripts and pins `numpy<3` in `environment.yml` and CI to fix the Windows `ModuleNotFoundError: No module named 'numpy._core._multiarray_umath'` crash.
 - `v0.0.4` introduces macOS compatibility fixes for Drag and Drop (`tkinterdnd2-universal`) and refined UI legibility (separated color bar limits, outlined canvas overlays).
+- **numpy 2.x + PyInstaller:** numpy 2.x relocated internal C extensions from `numpy.core` to `numpy._core`. PyInstaller's default hooks may not fully bundle `numpy._core._multiarray_umath`, causing `ModuleNotFoundError` at runtime (especially on Windows `--onefile`). Fix: add `--collect-all numpy` to all build scripts. Pin `numpy<3` to prevent future major-version reshuffles from breaking the build.
 - Do not assume "works in conda" means "works in packaged app". Source runs can see the repo tree; PyInstaller builds cannot unless files are explicitly bundled.
 - `v0.0.3` regressed compared with `v0.0.2` because the app was changed to load branding assets from `docs/branding/logo-square.png`, but the build scripts were still using direct PyInstaller CLI builds that did not bundle that asset.
 - The packaged macOS app also failed at startup with `customtkinter not found in libs/` because the code still assumed a source-tree `libs/` folder. Packaged apps must import from bundled modules first and only fall back to local `libs/` during source runs.
@@ -53,7 +62,7 @@
   - `xattr -l "/Applications/Firebrand Thermal Analysis.app"`
 - A `rejected` result with `com.apple.quarantine` means macOS is blocking an unsigned/unnotarized download. That is separate from app crashes.
 - Current macOS GitHub releases are not notarized. Users may need to remove quarantine manually unless proper Apple signing/notarization is added to CI.
-- Tag-triggered GitHub releases only happen on `v*` refs. `workflow_dispatch` on `main` builds artifacts but skips the `release` job by design.
+- Tag-triggered GitHub releases only happen on CalVer tag refs (e.g., `2026.06.23`). `workflow_dispatch` on `main` builds artifacts but skips the `release` job by design.
 
 ## Packaging Checklist
 - Before shipping, launch the app from source and from a packaged artifact.
@@ -65,6 +74,7 @@
   - `docs/branding/logo-square.png`
 - If updating icons or logos, regenerate platform icon files and verify the build scripts still reference the current paths.
 - If reusing an existing release tag, remember that it requires moving the tag and force-pushing it; otherwise the `release` job will publish the old artifact set.
+- When cutting a release, update version in **all three** places: `APP_VERSION` in `FirebrandThermalAnalysis.py`, `MyAppVersion` in `build/installer_windows.iss`, and the git tag.
 
 ## Lint/Test
 - Syntax: `python -m py_compile *.py`

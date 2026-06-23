@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{background:var(--neutral-1000);margin:0;padding:0;overflow:hidden}
+  body{width:700px;padding:24px;font-family:var(--font-ui);color:var(--fg-primary)}
+  .row{display:flex;gap:12px;align-items:stretch}
+  .col{display:flex;flex-direction:column;gap:8px;flex:1}
+  .lbl{font:500 11px/1 var(--font-ui);color:var(--fg-muted);letter-spacing:.04em;text-transform:uppercase}
+  .hex{font:500 11px/1 var(--font-data);color:var(--fg-muted);font-variant-numeric:tabular-nums}
+  .name{font:500 13px/1 var(--font-ui);color:var(--fg-primary)}
+  .swatch{height:64px;border-radius:6px;border:1px solid rgba(255,255,255,.04)}
+  .chip{display:flex;flex-direction:column;gap:6px;flex:1}
+  .meta{display:flex;justify-content:space-between;align-items:baseline}
+  .grid-bg{background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:8px 8px}
+</style>
+</head>
+<body>
+<div class="row" style="gap:10px">
+
+  <div class="chip">
+    <div class="swatch" style="background:#5BD08A;height:48px"></div>
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <div class="name" style="font-size:12px">OK</div>
+      <div class="hex">#5BD08A</div>
+      <div style="font:400 10px var(--font-ui);color:var(--fg-muted);line-height:1.3;margin-top:2px">detection / save</div>
+    </div>
+  </div>
+  <div class="chip">
+    <div class="swatch" style="background:#F5B83D;height:48px"></div>
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <div class="name" style="font-size:12px">Warn</div>
+      <div class="hex">#F5B83D</div>
+      <div style="font:400 10px var(--font-ui);color:var(--fg-muted);line-height:1.3;margin-top:2px">telemetry · status line</div>
+    </div>
+  </div>
+  <div class="chip">
+    <div class="swatch" style="background:#E0245E;height:48px"></div>
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <div class="name" style="font-size:12px">Critical</div>
+      <div class="hex">#E0245E</div>
+      <div style="font:400 10px var(--font-ui);color:var(--fg-muted);line-height:1.3;margin-top:2px">errors</div>
+    </div>
+  </div>
+  <div class="chip">
+    <div class="swatch" style="background:#7AB8FF;height:48px"></div>
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <div class="name" style="font-size:12px">Info</div>
+      <div class="hex">#7AB8FF</div>
+      <div style="font:400 10px var(--font-ui);color:var(--fg-muted);line-height:1.3;margin-top:2px">updates · links</div>
+    </div>
+  </div>
+  <div class="chip">
+    <div class="swatch" style="background:#10B981;height:48px"></div>
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <div class="name" style="font-size:12px">Tracking</div>
+      <div class="hex">#10B981</div>
+      <div style="font:400 10px var(--font-ui);color:var(--fg-muted);line-height:1.3;margin-top:2px">ROI rectangle</div>
+    </div>
+  </div>
+</div></body></html>

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{background:var(--neutral-1000);margin:0;padding:0;overflow:hidden}
+  body{width:700px;padding:24px;font-family:var(--font-ui);color:var(--fg-primary)}
+  .row{display:flex;gap:12px;align-items:stretch}
+  .col{display:flex;flex-direction:column;gap:8px;flex:1}
+  .lbl{font:500 11px/1 var(--font-ui);color:var(--fg-muted);letter-spacing:.04em;text-transform:uppercase}
+  .hex{font:500 11px/1 var(--font-data);color:var(--fg-muted);font-variant-numeric:tabular-nums}
+  .name{font:500 13px/1 var(--font-ui);color:var(--fg-primary)}
+  .swatch{height:64px;border-radius:6px;border:1px solid rgba(255,255,255,.04)}
+  .chip{display:flex;flex-direction:column;gap:6px;flex:1}
+  .meta{display:flex;justify-content:space-between;align-items:baseline}
+  .grid-bg{background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:8px 8px}
+</style>
+</head>
+<body>
+<div style="display:flex;flex-direction:column;gap:14px">
+  <div style="background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;padding:14px 16px;font-family:var(--font-data);font-variant-numeric:tabular-nums;font-feature-settings:'liga' 0">
+    <div style="font-size:18px;color:var(--status-warn);margin-bottom:8px">Status: frame 8854/17318 | ROI: (3, 7, 1020, 373) | thresh: 300.0C</div>
+    <div style="font-size:14px;color:var(--fg-primary)">306.9°C &nbsp; 0.940 emiss &nbsp; 1024×768 &nbsp; 30 fps</div>
+  </div>
+  <div style="display:flex;gap:24px">
+    <div><div class="name" style="font-size:11px">Family</div><div class="hex" style="font-size:13px;color:var(--fg-primary)">Fira Code</div></div>
+    <div><div class="name" style="font-size:11px">Numerals</div><div class="hex" style="font-size:13px;color:var(--fg-primary)">tabular-nums</div></div>
+    <div><div class="name" style="font-size:11px">Ligatures</div><div class="hex" style="font-size:13px;color:var(--fg-primary)">disabled</div></div>
+    <div><div class="name" style="font-size:11px">Used for</div><div class="hex" style="font-size:13px;color:var(--fg-primary)">data · status · ROI</div></div>
+  </div>
+</div></body></html>

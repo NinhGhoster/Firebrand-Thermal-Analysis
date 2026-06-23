@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{background:var(--neutral-1000);margin:0;padding:0;overflow:hidden}
+  body{width:700px;padding:24px;font-family:var(--font-ui);color:var(--fg-primary)}
+  .row{display:flex;gap:12px;align-items:stretch}
+  .col{display:flex;flex-direction:column;gap:8px;flex:1}
+  .lbl{font:500 11px/1 var(--font-ui);color:var(--fg-muted);letter-spacing:.04em;text-transform:uppercase}
+  .hex{font:500 11px/1 var(--font-data);color:var(--fg-muted);font-variant-numeric:tabular-nums}
+  .name{font:500 13px/1 var(--font-ui);color:var(--fg-primary)}
+  .swatch{height:64px;border-radius:6px;border:1px solid rgba(255,255,255,.04)}
+  .chip{display:flex;flex-direction:column;gap:6px;flex:1}
+  .meta{display:flex;justify-content:space-between;align-items:baseline}
+  .grid-bg{background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:8px 8px}
+</style>
+</head>
+<body>
+<div style="display:flex;flex-direction:column;gap:10px">
+  <div style="display:flex;gap:12px;align-items:center">
+    <div style="width:120px;font-size:13px;color:var(--fg-secondary)">Detect Thresh</div>
+    <input class="input" value="300.0" style="width:120px;text-align:right">
+    <div style="font:400 11px var(--font-data);color:var(--fg-muted)">rest</div>
+  </div>
+  <div style="display:flex;gap:12px;align-items:center">
+    <div style="width:120px;font-size:13px;color:var(--fg-secondary)">Emissivity</div>
+    <input class="input" value="0.940" style="width:120px;text-align:right;border-color:var(--ember-500);box-shadow:0 0 0 2px rgba(255,107,26,.15)">
+    <div style="font:400 11px var(--font-data);color:var(--ember-500)">focused</div>
+  </div>
+  <div style="display:flex;gap:12px;align-items:center">
+    <div style="width:120px;font-size:13px;color:var(--fg-secondary)">End Frame</div>
+    <input class="input" value="max" style="width:120px;text-align:right;color:var(--fg-muted)">
+    <div style="font:400 11px var(--font-data);color:var(--fg-muted)">reserved keyword</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
+    <div style="width:120px;font-size:11px;color:var(--fg-muted);text-transform:uppercase;letter-spacing:.04em">ROI · x y w h</div>
+    <input class="input" value="3" style="width:60px;text-align:right">
+    <input class="input" value="7" style="width:60px;text-align:right">
+    <input class="input" value="1020" style="width:60px;text-align:right">
+    <input class="input" value="373" style="width:60px;text-align:right">
+  </div>
+</div></body></html>

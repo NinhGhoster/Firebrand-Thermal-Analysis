@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{background:var(--neutral-1000);margin:0;padding:0;overflow:hidden}
+  body{width:700px;padding:24px;font-family:var(--font-ui);color:var(--fg-primary)}
+  .row{display:flex;gap:12px;align-items:stretch}
+  .col{display:flex;flex-direction:column;gap:8px;flex:1}
+  .lbl{font:500 11px/1 var(--font-ui);color:var(--fg-muted);letter-spacing:.04em;text-transform:uppercase}
+  .hex{font:500 11px/1 var(--font-data);color:var(--fg-muted);font-variant-numeric:tabular-nums}
+  .name{font:500 13px/1 var(--font-ui);color:var(--fg-primary)}
+  .swatch{height:64px;border-radius:6px;border:1px solid rgba(255,255,255,.04)}
+  .chip{display:flex;flex-direction:column;gap:6px;flex:1}
+  .meta{display:flex;justify-content:space-between;align-items:baseline}
+  .grid-bg{background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:8px 8px}
+</style>
+</head>
+<body>
+<div style="display:flex;flex-direction:column;gap:6px">
+
+  <div style="display:flex;align-items:center;gap:14px;background:#0B0D10;border:1px solid var(--border-default);border-radius:6px;padding:10px 14px;height:44px">
+    <div style="width:32px;height:32px;background:#0B0D10;border-radius:4px;border:1px solid rgba(255,255,255,.06)"></div>
+    <div style="flex:1;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div class="name" style="font-size:12px">App background</div>
+        <div style="font:400 10px var(--font-data);color:var(--fg-muted)">--bg-app</div>
+      </div>
+      <div class="hex">#0B0D10</div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:14px;background:#14171C;border:1px solid var(--border-default);border-radius:6px;padding:10px 14px;height:44px">
+    <div style="width:32px;height:32px;background:#14171C;border-radius:4px;border:1px solid rgba(255,255,255,.06)"></div>
+    <div style="flex:1;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div class="name" style="font-size:12px">Surface (raised)</div>
+        <div style="font:400 10px var(--font-data);color:var(--fg-muted)">--bg-surface</div>
+      </div>
+      <div class="hex">#14171C</div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:14px;background:#1C2026;border:1px solid var(--border-default);border-radius:6px;padding:10px 14px;height:44px">
+    <div style="width:32px;height:32px;background:#1C2026;border-radius:4px;border:1px solid rgba(255,255,255,.06)"></div>
+    <div style="flex:1;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div class="name" style="font-size:12px">Card / panel</div>
+        <div style="font:400 10px var(--font-data);color:var(--fg-muted)">--bg-card</div>
+      </div>
+      <div class="hex">#1C2026</div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:14px;background:#0B0D10;border:1px solid var(--border-default);border-radius:6px;padding:10px 14px;height:44px">
+    <div style="width:32px;height:32px;background:#0B0D10;border-radius:4px;border:1px solid rgba(255,255,255,.06)"></div>
+    <div style="flex:1;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div class="name" style="font-size:12px">Input (inset)</div>
+        <div style="font:400 10px var(--font-data);color:var(--fg-muted)">--bg-input</div>
+      </div>
+      <div class="hex">#0B0D10</div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:14px;background:#262B33;border:1px solid var(--border-default);border-radius:6px;padding:10px 14px;height:44px">
+    <div style="width:32px;height:32px;background:#262B33;border-radius:4px;border:1px solid rgba(255,255,255,.06)"></div>
+    <div style="flex:1;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div class="name" style="font-size:12px">Hover</div>
+        <div style="font:400 10px var(--font-data);color:var(--fg-muted)">--bg-hover</div>
+      </div>
+      <div class="hex">#262B33</div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:14px;background:#0F1217;border:1px solid var(--border-default);border-radius:6px;padding:10px 14px;height:44px">
+    <div style="width:32px;height:32px;background:#0F1217;border-radius:4px;border:1px solid rgba(255,255,255,.06)"></div>
+    <div style="flex:1;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div class="name" style="font-size:12px">Pressed</div>
+        <div style="font:400 10px var(--font-data);color:var(--fg-muted)">--bg-pressed</div>
+      </div>
+      <div class="hex">#0F1217</div>
+    </div>
+  </div>
+</div></body></html>

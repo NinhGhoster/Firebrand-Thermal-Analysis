@@ -24,6 +24,7 @@ $opts = @(
   "--icon", $IconPath,
   "--add-data", $LogoData,
   "--paths", "libs",
+  "--collect-all", "numpy",
   "--collect-all", "fnv",
   "--collect-all", "tkinterdnd2",
   $Entry

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{background:var(--neutral-1000);margin:0;padding:0;overflow:hidden}
+  body{width:700px;padding:24px;font-family:var(--font-ui);color:var(--fg-primary)}
+  .row{display:flex;gap:12px;align-items:stretch}
+  .col{display:flex;flex-direction:column;gap:8px;flex:1}
+  .lbl{font:500 11px/1 var(--font-ui);color:var(--fg-muted);letter-spacing:.04em;text-transform:uppercase}
+  .hex{font:500 11px/1 var(--font-data);color:var(--fg-muted);font-variant-numeric:tabular-nums}
+  .name{font:500 13px/1 var(--font-ui);color:var(--fg-primary)}
+  .swatch{height:64px;border-radius:6px;border:1px solid rgba(255,255,255,.04)}
+  .chip{display:flex;flex-direction:column;gap:6px;flex:1}
+  .meta{display:flex;justify-content:space-between;align-items:baseline}
+  .grid-bg{background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:8px 8px}
+</style>
+</head>
+<body>
+<div style="display:flex;flex-direction:column;gap:12px">
+  <div style="display:flex;align-items:baseline;gap:16px">
+    <div style="font:600 20px/1 var(--font-ui);color:var(--fg-primary);min-width:240px">H3 — Settings group</div>
+    <div class="hex">Fira Sans · 20/600</div>
+  </div>
+  <div style="display:flex;align-items:baseline;gap:16px">
+    <div style="font:600 14px/1 var(--font-ui);color:var(--ember-500);min-width:240px;letter-spacing:.02em">SECTION HEADER</div>
+    <div class="hex">Fira Sans · 14/600 · ember</div>
+  </div>
+  <div style="display:flex;align-items:baseline;gap:16px">
+    <div style="font:500 13px/1 var(--font-ui);color:var(--fg-primary);min-width:240px">Button / Label</div>
+    <div class="hex">Fira Sans · 13/500</div>
+  </div>
+  <div style="display:flex;align-items:baseline;gap:16px">
+    <div style="font:400 13px/1.4 var(--font-ui);color:var(--fg-secondary);min-width:240px">Body — paragraph copy</div>
+    <div class="hex">Fira Sans · 13/400</div>
+  </div>
+  <div style="display:flex;align-items:baseline;gap:16px">
+    <div style="font:400 11px/1 var(--font-ui);color:var(--fg-muted);min-width:240px">Caption / Meta</div>
+    <div class="hex">Fira Sans · 11/400</div>
+  </div>
+</div></body></html>

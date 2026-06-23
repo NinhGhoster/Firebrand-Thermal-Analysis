@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{background:var(--neutral-1000);margin:0;padding:0;overflow:hidden}
+  body{width:700px;padding:24px;font-family:var(--font-ui);color:var(--fg-primary)}
+  .row{display:flex;gap:12px;align-items:stretch}
+  .col{display:flex;flex-direction:column;gap:8px;flex:1}
+  .lbl{font:500 11px/1 var(--font-ui);color:var(--fg-muted);letter-spacing:.04em;text-transform:uppercase}
+  .hex{font:500 11px/1 var(--font-data);color:var(--fg-muted);font-variant-numeric:tabular-nums}
+  .name{font:500 13px/1 var(--font-ui);color:var(--fg-primary)}
+  .swatch{height:64px;border-radius:6px;border:1px solid rgba(255,255,255,.04)}
+  .chip{display:flex;flex-direction:column;gap:6px;flex:1}
+  .meta{display:flex;justify-content:space-between;align-items:baseline}
+  .grid-bg{background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:8px 8px}
+</style>
+</head>
+<body>
+<div style="display:flex;flex-direction:column;gap:8px">
+  <div style="background:var(--bg-card);border:1px solid var(--border-default);border-radius:8px;padding:10px 14px;font-family:var(--font-data);font-variant-numeric:tabular-nums;font-feature-settings:'liga' 0;font-size:13px;color:var(--status-warn)">Status: frame 8854/17318 | ROI: (3, 7, 1020, 373) | thresh: 300.0C</div>
+  <div style="background:var(--bg-card);border:1px solid var(--border-default);border-radius:8px;padding:10px 14px;font-family:var(--font-data);font-size:13px;color:var(--status-warn)">Status: opened Rec-0158.seq | 1024×768 | 17318 frames</div>
+  <div style="background:var(--bg-card);border:1px solid var(--border-default);border-radius:8px;padding:10px 14px;font-family:var(--font-data);font-size:13px;color:var(--status-ok)">Status: exported Rec-0158.csv · 24,108 rows</div>
+  <div style="background:var(--bg-card);border:1px solid var(--border-default);border-radius:8px;padding:10px 14px;font-family:var(--font-data);font-size:13px;color:var(--status-critical)">Status: FLIR SDK required · install wheel from SDK/</div>
+</div></body></html>

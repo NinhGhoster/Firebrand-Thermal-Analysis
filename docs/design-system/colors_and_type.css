@@ -1,0 +1,364 @@
+/* ============================================================
+   Firebrand Thermal Analysis — Design Tokens
+   Colors, type, spacing, motion. All variables ship in :root.
+   ============================================================ */
+
+/* --- Webfont loading ---------------------------------------- */
+/* The codebase uses Fira Sans (UI) + Fira Code (data).         */
+/* We load from Google Fonts; if hosting locally, ship the .ttf */
+/* files in /fonts and swap to @font-face.                      */
+
+@import url('https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&family=IBM+Plex+Sans:wght@500;600&display=swap');
+
+:root {
+  /* ============================================================
+     1. NEUTRALS — warm-dark surfaces
+     The original app uses cool Tailwind slate; the redesign
+     shifts to a slightly warmer near-black to sit better next
+     to inferno-palette thermal imagery.
+     ============================================================ */
+  --neutral-1000: #06080A;   /* deepest — full-bleed background */
+  --neutral-950:  #0B0D10;   /* canvas / app background */
+  --neutral-900:  #14171C;   /* raised surface */
+  --neutral-800:  #1C2026;   /* card / panel */
+  --neutral-700:  #262B33;   /* hairline border / hover state */
+  --neutral-600:  #3A3F49;   /* divider / muted control */
+  --neutral-500:  #5A6170;   /* disabled text */
+  --neutral-400:  #8C94A3;   /* secondary text */
+  --neutral-300:  #B8BFCC;   /* body text */
+  --neutral-200:  #DDE1E8;   /* primary text */
+  --neutral-100:  #F2F4F8;   /* high-emphasis text / white-ish */
+  --neutral-0:    #FFFFFF;
+
+  /* ============================================================
+     2. EMBER — primary accent (replaces generic blue)
+     Sampled directly from the Inferno colormap that defines
+     the product. Used for CTAs, focus, active states, headings.
+     ============================================================ */
+  --ember-100: #FFE9D6;
+  --ember-200: #FFCFA0;
+  --ember-300: #FFB347;   /* hover / hi-lite */
+  --ember-400: #FF8A2B;
+  --ember-500: #FF6B1A;   /* PRIMARY — buttons, focus, accents */
+  --ember-600: #E5520A;
+  --ember-700: #B83C00;
+  --ember-800: #7A2700;
+  --ember-900: #3F1500;
+
+  /* ============================================================
+     3. INFERNO COLORMAP — the product's signature palette.
+     8 stops sampled from OpenCV's COLORMAP_INFERNO.
+     Used in the live thermal canvas; also in marketing chrome.
+     ============================================================ */
+  --inferno-00: #000004;
+  --inferno-01: #1B0C42;
+  --inferno-02: #4A0C6B;
+  --inferno-03: #781C6D;
+  --inferno-04: #A52C60;
+  --inferno-05: #CF4446;
+  --inferno-06: #ED6925;
+  --inferno-07: #FB9A06;
+  --inferno-08: #F7D03C;
+  --inferno-09: #FCFFA4;
+
+  /* Gradient utility */
+  --gradient-inferno: linear-gradient(
+    180deg,
+    var(--inferno-09) 0%,
+    var(--inferno-08) 14%,
+    var(--inferno-07) 28%,
+    var(--inferno-06) 42%,
+    var(--inferno-05) 56%,
+    var(--inferno-04) 70%,
+    var(--inferno-03) 82%,
+    var(--inferno-02) 92%,
+    var(--inferno-00) 100%
+  );
+
+  /* ============================================================
+     4. SEMANTIC — pulled from inferno + cooler counterparts
+     so they feel native, not imported from a different system.
+     ============================================================ */
+  --status-ok:       #5BD08A;   /* detection confirmed, save success */
+  --status-warn:     #F5B83D;   /* telemetry amber — status line */
+  --status-critical: #E0245E;   /* errors */
+  --status-info:     #7AB8FF;   /* updates, links — rare use */
+  --status-tracking: #10B981;   /* ROI rectangle (preserved from source) */
+
+  /* ============================================================
+     5. SURFACE TOKENS — semantic aliases for the neutrals.
+     Use these in components, NOT the raw scale values.
+     ============================================================ */
+  --bg-canvas:      var(--neutral-950);
+  --bg-app:         var(--neutral-950);
+  --bg-surface:     var(--neutral-900);
+  --bg-card:        var(--neutral-800);
+  --bg-input:       var(--neutral-950);
+  --bg-hover:       var(--neutral-700);
+  --bg-pressed:     #0F1217;
+  --bg-overlay:     rgba(6, 8, 10, 0.7);
+
+  --border-default: var(--neutral-700);
+  --border-strong:  var(--neutral-600);
+  --border-focus:   var(--ember-500);
+
+  --fg-primary:     var(--neutral-100);
+  --fg-secondary:   var(--neutral-300);
+  --fg-muted:       var(--neutral-400);
+  --fg-disabled:    var(--neutral-500);
+  --fg-accent:      var(--ember-500);
+  --fg-on-accent:   var(--neutral-1000);
+  --fg-status:      var(--status-warn);
+
+  /* ============================================================
+     6. TYPOGRAPHY — families
+     ============================================================ */
+  --font-ui:       'Fira Sans', system-ui, -apple-system, sans-serif;
+  --font-data:     'Fira Code', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-display:  'IBM Plex Sans', 'Fira Sans', system-ui, sans-serif;
+
+  /* Type scale — instrument-style, tight increments */
+  --text-xs:   11px;   /* meta, captions */
+  --text-sm:   12px;   /* secondary labels */
+  --text-base: 13px;   /* default UI text (matches Fira Sans 13 in source) */
+  --text-md:   14px;   /* section headers (matches source) */
+  --text-lg:   16px;   /* card titles */
+  --text-xl:   20px;   /* H3 — settings groups, dialogs */
+  --text-2xl:  24px;   /* H2 — screen titles */
+  --text-3xl:  32px;   /* H1 — about / marketing display */
+  --text-4xl:  44px;   /* hero display only */
+
+  /* Line heights */
+  --leading-tight:   1.15;
+  --leading-snug:    1.3;
+  --leading-normal:  1.45;
+  --leading-relaxed: 1.6;
+
+  /* Weights */
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+
+  /* ============================================================
+     7. SPACING — base 4
+     ============================================================ */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-14: 56px;
+  --space-18: 72px;
+
+  /* ============================================================
+     8. RADII
+     ============================================================ */
+  --radius-none:  0;
+  --radius-xs:    4px;   /* inputs */
+  --radius-sm:    6px;   /* buttons */
+  --radius-md:    10px;  /* cards / pods (matches source CTkFrame corner_radius=10) */
+  --radius-lg:    16px;  /* dialogs, pills */
+  --radius-full:  999px;
+
+  /* ============================================================
+     9. ELEVATION — hairlines, not drop shadows
+     ============================================================ */
+  --elev-0: none;
+  --elev-1: inset 0 0 0 1px var(--border-default);
+  --elev-2: inset 0 0 0 1px var(--border-strong);
+  --elev-focus: 0 0 0 2px var(--bg-app), 0 0 0 4px var(--ember-500);
+
+  /* Reserved for modal/popover only — used sparingly */
+  --shadow-popover: 0 12px 32px -8px rgba(0, 0, 0, 0.6),
+                    0 4px 12px  -4px rgba(0, 0, 0, 0.4);
+
+  /* ============================================================
+     10. MOTION — single curve, three durations
+     ============================================================ */
+  --ease-instrument: cubic-bezier(0.32, 0.72, 0, 1);
+  --duration-micro:  120ms;
+  --duration-small:  200ms;
+  --duration-layout: 320ms;
+
+  /* ============================================================
+     11. LAYOUT — fixed dimensions from the source app
+     ============================================================ */
+  --layout-side-panel: 340px;
+  --layout-colorbar:   36px;
+  --layout-pod-height: 88px;
+  --layout-gap:        8px;
+  --layout-app-padding: 10px;
+}
+
+/* ============================================================
+   12. RESETS / BASELINES
+   ============================================================ */
+html, body {
+  background: var(--bg-app);
+  color: var(--fg-primary);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  margin: 0;
+  padding: 0;
+}
+
+* { box-sizing: border-box; }
+
+/* ============================================================
+   13. SEMANTIC TYPOGRAPHY CLASSES
+   ============================================================ */
+.h1, h1 {
+  font-family: var(--font-display);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-3xl);
+  line-height: var(--leading-tight);
+  letter-spacing: -0.01em;
+  color: var(--fg-primary);
+  margin: 0;
+}
+.h2, h2 {
+  font-family: var(--font-display);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+  letter-spacing: -0.005em;
+  color: var(--fg-primary);
+  margin: 0;
+}
+.h3, h3 {
+  font-family: var(--font-ui);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-xl);
+  line-height: var(--leading-snug);
+  color: var(--fg-primary);
+  margin: 0;
+}
+.section-header {
+  font-family: var(--font-ui);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-md);
+  letter-spacing: 0.02em;
+  color: var(--fg-accent);   /* ember accent, replaces the old blue */
+  margin: 0;
+}
+.label {
+  font-family: var(--font-ui);
+  font-weight: var(--weight-medium);
+  font-size: var(--text-base);
+  color: var(--fg-secondary);
+}
+.body, p {
+  font-family: var(--font-ui);
+  font-weight: var(--weight-regular);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--fg-secondary);
+  margin: 0;
+}
+.caption {
+  font-family: var(--font-ui);
+  font-weight: var(--weight-regular);
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+.data, .mono, code, kbd {
+  font-family: var(--font-data);
+  font-feature-settings: 'tnum' 1, 'liga' 0;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-base);
+  color: var(--fg-primary);
+}
+.data-status {
+  font-family: var(--font-data);
+  font-feature-settings: 'tnum' 1, 'liga' 0;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-base);
+  color: var(--status-warn);   /* the iconic amber status text */
+}
+.kbd {
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  background: var(--neutral-800);
+  border: 1px solid var(--neutral-700);
+  border-radius: var(--radius-xs);
+  padding: 2px 6px;
+  color: var(--fg-secondary);
+  display: inline-block;
+  line-height: 1;
+}
+
+/* ============================================================
+   14. REUSABLE PRIMITIVES
+   ============================================================ */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.btn-primary {
+  background: var(--ember-500);
+  color: var(--neutral-1000);
+  font-family: var(--font-ui);
+  font-weight: var(--weight-medium);
+  font-size: var(--text-base);
+  border: 0;
+  border-radius: var(--radius-sm);
+  height: 32px;
+  padding: 0 var(--space-3);
+  cursor: pointer;
+  transition: background var(--duration-micro) var(--ease-instrument);
+}
+.btn-primary:hover { background: var(--ember-400); }
+.btn-primary:active { background: var(--ember-600); box-shadow: inset 0 1px 2px rgba(0,0,0,0.25); }
+.btn-primary:focus-visible { outline: none; box-shadow: var(--elev-focus); }
+
+.btn-secondary {
+  background: var(--neutral-700);
+  color: var(--fg-primary);
+  font-family: var(--font-ui);
+  font-weight: var(--weight-medium);
+  font-size: var(--text-base);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  height: 32px;
+  padding: 0 var(--space-3);
+  cursor: pointer;
+  transition: background var(--duration-micro) var(--ease-instrument);
+}
+.btn-secondary:hover { background: var(--neutral-600); }
+.btn-secondary:active { background: var(--bg-pressed); }
+.btn-secondary:focus-visible { outline: none; box-shadow: var(--elev-focus); }
+
+.input {
+  background: var(--bg-input);
+  color: var(--fg-primary);
+  font-family: var(--font-data);
+  font-feature-settings: 'tnum' 1, 'liga' 0;
+  font-size: var(--text-base);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+  height: 32px;
+  padding: 0 var(--space-3);
+  outline: none;
+  transition: border-color var(--duration-micro) var(--ease-instrument);
+}
+.input:focus { border-color: var(--border-focus); }
+
+/* ============================================================
+   15. ACCESSIBILITY
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+  }
+}

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{background:var(--neutral-1000);margin:0;padding:0;overflow:hidden}
+  body{width:700px;padding:24px;font-family:var(--font-ui);color:var(--fg-primary)}
+  .row{display:flex;gap:12px;align-items:stretch}
+  .col{display:flex;flex-direction:column;gap:8px;flex:1}
+  .lbl{font:500 11px/1 var(--font-ui);color:var(--fg-muted);letter-spacing:.04em;text-transform:uppercase}
+  .hex{font:500 11px/1 var(--font-data);color:var(--fg-muted);font-variant-numeric:tabular-nums}
+  .name{font:500 13px/1 var(--font-ui);color:var(--fg-primary)}
+  .swatch{height:64px;border-radius:6px;border:1px solid rgba(255,255,255,.04)}
+  .chip{display:flex;flex-direction:column;gap:6px;flex:1}
+  .meta{display:flex;justify-content:space-between;align-items:baseline}
+  .grid-bg{background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:8px 8px}
+</style>
+</head>
+<body>
+<div style="display:flex;gap:14px;align-items:flex-end">
+
+  <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex:1">
+    <div style="width:72px;height:72px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:0px"></div>
+    <div style="text-align:center">
+      <div style="font:500 11px/1 var(--font-data);color:var(--fg-primary)">--radius-none</div>
+      <div style="font:400 10px/1.3 var(--font-ui);color:var(--fg-muted);margin-top:4px">0px<br>0</div>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex:1">
+    <div style="width:72px;height:72px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:4px"></div>
+    <div style="text-align:center">
+      <div style="font:500 11px/1 var(--font-data);color:var(--fg-primary)">--radius-xs</div>
+      <div style="font:400 10px/1.3 var(--font-ui);color:var(--fg-muted);margin-top:4px">4px<br>inputs</div>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex:1">
+    <div style="width:72px;height:72px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px"></div>
+    <div style="text-align:center">
+      <div style="font:500 11px/1 var(--font-data);color:var(--fg-primary)">--radius-sm</div>
+      <div style="font:400 10px/1.3 var(--font-ui);color:var(--fg-muted);margin-top:4px">6px<br>buttons</div>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex:1">
+    <div style="width:72px;height:72px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:10px"></div>
+    <div style="text-align:center">
+      <div style="font:500 11px/1 var(--font-data);color:var(--fg-primary)">--radius-md</div>
+      <div style="font:400 10px/1.3 var(--font-ui);color:var(--fg-muted);margin-top:4px">10px<br>cards · pods</div>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex:1">
+    <div style="width:72px;height:72px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:16px"></div>
+    <div style="text-align:center">
+      <div style="font:500 11px/1 var(--font-data);color:var(--fg-primary)">--radius-lg</div>
+      <div style="font:400 10px/1.3 var(--font-ui);color:var(--fg-muted);margin-top:4px">16px<br>dialogs</div>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex:1">
+    <div style="width:72px;height:72px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:999px"></div>
+    <div style="text-align:center">
+      <div style="font:500 11px/1 var(--font-data);color:var(--fg-primary)">--radius-full</div>
+      <div style="font:400 10px/1.3 var(--font-ui);color:var(--fg-muted);margin-top:4px">full<br>pills · avatars</div>
+    </div>
+  </div>
+</div></body></html>

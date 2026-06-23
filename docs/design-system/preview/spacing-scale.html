@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{background:var(--neutral-1000);margin:0;padding:0;overflow:hidden}
+  body{width:700px;padding:24px;font-family:var(--font-ui);color:var(--fg-primary)}
+  .row{display:flex;gap:12px;align-items:stretch}
+  .col{display:flex;flex-direction:column;gap:8px;flex:1}
+  .lbl{font:500 11px/1 var(--font-ui);color:var(--fg-muted);letter-spacing:.04em;text-transform:uppercase}
+  .hex{font:500 11px/1 var(--font-data);color:var(--fg-muted);font-variant-numeric:tabular-nums}
+  .name{font:500 13px/1 var(--font-ui);color:var(--fg-primary)}
+  .swatch{height:64px;border-radius:6px;border:1px solid rgba(255,255,255,.04)}
+  .chip{display:flex;flex-direction:column;gap:6px;flex:1}
+  .meta{display:flex;justify-content:space-between;align-items:baseline}
+  .grid-bg{background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:8px 8px}
+</style>
+</head>
+<body>
+<div style="display:flex;flex-direction:column;gap:6px;font-family:var(--font-data);font-variant-numeric:tabular-nums">
+<div style="display:flex;align-items:center;gap:14px">
+    <div style="width:80px;color:var(--fg-muted);font-size:11px">--space-1</div>
+    <div style="width:60px;color:var(--fg-primary);font-size:12px;text-align:right">4px</div>
+    <div style="flex:1;background:var(--bg-card);border-radius:2px;height:14px;position:relative">
+      <div style="height:14px;background:var(--ember-500);border-radius:2px;width:8px;max-width:100%"></div>
+    </div>
+  </div><div style="display:flex;align-items:center;gap:14px">
+    <div style="width:80px;color:var(--fg-muted);font-size:11px">--space-2</div>
+    <div style="width:60px;color:var(--fg-primary);font-size:12px;text-align:right">8px</div>
+    <div style="flex:1;background:var(--bg-card);border-radius:2px;height:14px;position:relative">
+      <div style="height:14px;background:var(--ember-500);border-radius:2px;width:16px;max-width:100%"></div>
+    </div>
+  </div><div style="display:flex;align-items:center;gap:14px">
+    <div style="width:80px;color:var(--fg-muted);font-size:11px">--space-3</div>
+    <div style="width:60px;color:var(--fg-primary);font-size:12px;text-align:right">12px</div>
+    <div style="flex:1;background:var(--bg-card);border-radius:2px;height:14px;position:relative">
+      <div style="height:14px;background:var(--ember-500);border-radius:2px;width:24px;max-width:100%"></div>
+    </div>
+  </div><div style="display:flex;align-items:center;gap:14px">
+    <div style="width:80px;color:var(--fg-muted);font-size:11px">--space-4</div>
+    <div style="width:60px;color:var(--fg-primary);font-size:12px;text-align:right">16px</div>
+    <div style="flex:1;background:var(--bg-card);border-radius:2px;height:14px;position:relative">
+      <div style="height:14px;background:var(--ember-500);border-radius:2px;width:32px;max-width:100%"></div>
+    </div>
+  </div><div style="display:flex;align-items:center;gap:14px">
+    <div style="width:80px;color:var(--fg-muted);font-size:11px">--space-5</div>
+    <div style="width:60px;color:var(--fg-primary);font-size:12px;text-align:right">20px</div>
+    <div style="flex:1;background:var(--bg-card);border-radius:2px;height:14px;position:relative">
+      <div style="height:14px;background:var(--ember-500);border-radius:2px;width:40px;max-width:100%"></div>
+    </div>
+  </div><div style="display:flex;align-items:center;gap:14px">
+    <div style="width:80px;color:var(--fg-muted);font-size:11px">--space-6</div>
+    <div style="width:60px;color:var(--fg-primary);font-size:12px;text-align:right">24px</div>
+    <div style="flex:1;background:var(--bg-card);border-radius:2px;height:14px;position:relative">
+      <div style="height:14px;background:var(--ember-500);border-radius:2px;width:48px;max-width:100%"></div>
+    </div>
+  </div><div style="display:flex;align-items:center;gap:14px">
+    <div style="width:80px;color:var(--fg-muted);font-size:11px">--space-8</div>
+    <div style="width:60px;color:var(--fg-primary);font-size:12px;text-align:right">32px</div>
+    <div style="flex:1;background:var(--bg-card);border-radius:2px;height:14px;position:relative">
+      <div style="height:14px;background:var(--ember-500);border-radius:2px;width:64px;max-width:100%"></div>
+    </div>
+  </div><div style="display:flex;align-items:center;gap:14px">
+    <div style="width:80px;color:var(--fg-muted);font-size:11px">--space-10</div>
+    <div style="width:60px;color:var(--fg-primary);font-size:12px;text-align:right">40px</div>
+    <div style="flex:1;background:var(--bg-card);border-radius:2px;height:14px;position:relative">
+      <div style="height:14px;background:var(--ember-500);border-radius:2px;width:80px;max-width:100%"></div>
+    </div>
+  </div><div style="display:flex;align-items:center;gap:14px">
+    <div style="width:80px;color:var(--fg-muted);font-size:11px">--space-14</div>
+    <div style="width:60px;color:var(--fg-primary);font-size:12px;text-align:right">56px</div>
+    <div style="flex:1;background:var(--bg-card);border-radius:2px;height:14px;position:relative">
+      <div style="height:14px;background:var(--ember-500);border-radius:2px;width:112px;max-width:100%"></div>
+    </div>
+  </div><div style="display:flex;align-items:center;gap:14px">
+    <div style="width:80px;color:var(--fg-muted);font-size:11px">--space-18</div>
+    <div style="width:60px;color:var(--fg-primary);font-size:12px;text-align:right">72px</div>
+    <div style="flex:1;background:var(--bg-card);border-radius:2px;height:14px;position:relative">
+      <div style="height:14px;background:var(--ember-500);border-radius:2px;width:144px;max-width:100%"></div>
+    </div>
+  </div>
+</div></body></html>

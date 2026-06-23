@@ -164,7 +164,7 @@ COLORMAPS = {
     "Grayscale": None,
 }
 DEFAULT_COLORMAP = "Inferno"
-APP_VERSION = "v0.0.4"
+APP_VERSION = "2026.06.23"
 GITHUB_OWNER = "NinhGhoster"
 GITHUB_REPO = "Firebrand-Thermal-Analysis"
 GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases"

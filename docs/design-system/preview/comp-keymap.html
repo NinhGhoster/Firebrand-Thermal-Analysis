@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{background:var(--neutral-1000);margin:0;padding:0;overflow:hidden}
+  body{width:700px;padding:24px;font-family:var(--font-ui);color:var(--fg-primary)}
+  .row{display:flex;gap:12px;align-items:stretch}
+  .col{display:flex;flex-direction:column;gap:8px;flex:1}
+  .lbl{font:500 11px/1 var(--font-ui);color:var(--fg-muted);letter-spacing:.04em;text-transform:uppercase}
+  .hex{font:500 11px/1 var(--font-data);color:var(--fg-muted);font-variant-numeric:tabular-nums}
+  .name{font:500 13px/1 var(--font-ui);color:var(--fg-primary)}
+  .swatch{height:64px;border-radius:6px;border:1px solid rgba(255,255,255,.04)}
+  .chip{display:flex;flex-direction:column;gap:6px;flex:1}
+  .meta{display:flex;justify-content:space-between;align-items:baseline}
+  .grid-bg{background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:8px 8px}
+</style>
+</head>
+<body>
+<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-family:var(--font-ui);font-size:12px;color:var(--fg-secondary)">
+
+  <div style="display:flex;align-items:center;gap:6px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;padding:5px 8px 5px 6px">
+    <span style="font-family:var(--font-data);font-size:11px;background:var(--neutral-700);border:1px solid var(--border-default);border-radius:3px;padding:2px 6px;color:var(--fg-primary)">Space</span>
+    <span>Play / Pause</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;padding:5px 8px 5px 6px">
+    <span style="font-family:var(--font-data);font-size:11px;background:var(--neutral-700);border:1px solid var(--border-default);border-radius:3px;padding:2px 6px;color:var(--fg-primary)">S</span>
+    <span>Stop</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;padding:5px 8px 5px 6px">
+    <span style="font-family:var(--font-data);font-size:11px;background:var(--neutral-700);border:1px solid var(--border-default);border-radius:3px;padding:2px 6px;color:var(--fg-primary)">← / ,</span>
+    <span>Prev</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;padding:5px 8px 5px 6px">
+    <span style="font-family:var(--font-data);font-size:11px;background:var(--neutral-700);border:1px solid var(--border-default);border-radius:3px;padding:2px 6px;color:var(--fg-primary)">→ / .</span>
+    <span>Next</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;padding:5px 8px 5px 6px">
+    <span style="font-family:var(--font-data);font-size:11px;background:var(--neutral-700);border:1px solid var(--border-default);border-radius:3px;padding:2px 6px;color:var(--fg-primary)">Home / End</span>
+    <span>First / Last</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;padding:5px 8px 5px 6px">
+    <span style="font-family:var(--font-data);font-size:11px;background:var(--neutral-700);border:1px solid var(--border-default);border-radius:3px;padding:2px 6px;color:var(--fg-primary)">+ / − / 0</span>
+    <span>Zoom · Reset</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;padding:5px 8px 5px 6px">
+    <span style="font-family:var(--font-data);font-size:11px;background:var(--neutral-700);border:1px solid var(--border-default);border-radius:3px;padding:2px 6px;color:var(--fg-primary)">1–8</span>
+    <span>Colormap</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;padding:5px 8px 5px 6px">
+    <span style="font-family:var(--font-data);font-size:11px;background:var(--neutral-700);border:1px solid var(--border-default);border-radius:3px;padding:2px 6px;color:var(--fg-primary)">R</span>
+    <span>Reset ROI</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;padding:5px 8px 5px 6px">
+    <span style="font-family:var(--font-data);font-size:11px;background:var(--neutral-700);border:1px solid var(--border-default);border-radius:3px;padding:2px 6px;color:var(--fg-primary)">F / Esc</span>
+    <span>Fullscreen</span>
+  </div>
+</div></body></html>
