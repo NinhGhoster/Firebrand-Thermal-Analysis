@@ -11,8 +11,8 @@
 - Color bar displays temperature-to-color gradient alongside the canvas.
 
 ## Versioning
-- Versions follow **CalVer** date-based format: `YYYY.MM.DD` (e.g., `2026.06.23`).
-- Git tags use the bare version number: `2026.06.23` (no `v` prefix).
+- Versions follow **CalVer** date-based format: `YYYY.MM.DD` (e.g., `2026.06.24`).
+- Git tags use the bare version number: `2026.06.24` (no `v` prefix).
 - The `APP_VERSION` constant in `FirebrandThermalAnalysis.py` is **auto-detected** — no manual editing needed:
   1. Packaged builds read a `VERSION` file bundled by the build scripts (written from the git tag).
   2. Source runs call `git describe --tags --abbrev=0` at startup.
@@ -39,7 +39,7 @@
 - macOS: `./build/build_macos.sh`
 - Windows: `.\build\build_windows.ps1` (single-file `dist/FirebrandThermalAnalysis.exe`)
 - Linux: `./build/build_linux.sh`
-- GitHub Actions: `.github/workflows/build.yml` (runs on `workflow_dispatch` and CalVer tags like `2026.06.23`)
+- GitHub Actions: `.github/workflows/build.yml` (runs on `workflow_dispatch` and CalVer tags like `2026.06.24`)
 - Optional env vars:
   - `FLIR_SDK_WHEEL` (preferred) or `FLIR_SDK_PYTHON_DIR` + `FLIR_SDK_SHADOW_DIR`
   - `FLIR_SDK_LIB_DIR` + `FLIR_SDK_BIN_DIR` for SDK runtime libraries
@@ -51,7 +51,7 @@
 - Linux: `./build/package_linux_appimage.sh` (requires `appimagetool`; uses `docs/branding/logo-square.png`)
 
 ## Release Lessons
-- `2026.06.23` switches to CalVer date-based versioning (no `v` prefix). Adds `--collect-all numpy` to all build scripts (later reverted) and pins `numpy<2` in `environment.yml` and CI to fix the Windows `ModuleNotFoundError: No module named 'numpy._core._multiarray_umath'` crash. Introduces auto-versioning from git tags — `APP_VERSION` is no longer hardcoded.
+- `2026.06.24` switches to CalVer date-based versioning (no `v` prefix). Adds `--collect-all numpy` to all build scripts (later reverted) and pins `numpy<2` in `environment.yml` and CI to fix the Windows `ModuleNotFoundError: No module named 'numpy._core._multiarray_umath'` crash. Introduces auto-versioning from git tags — `APP_VERSION` is no longer hardcoded.
 - `0.0.4` introduces macOS compatibility fixes for Drag and Drop (`tkinterdnd2-universal`) and refined UI legibility (separated color bar limits, outlined canvas overlays).
 - `0.0.3` regressed compared with `0.0.2` because the app was changed to load branding assets from `docs/branding/logo-square.png`, but the build scripts were still using direct PyInstaller CLI builds that did not bundle that asset. The packaged macOS app also failed at startup with `customtkinter not found in libs/` because the code still assumed a source-tree `libs/` folder. Packaged apps must import from bundled modules first and only fall back to local `libs/` during source runs.
 - `0.0.2` initial packaged release with PyInstaller build scripts for macOS, Windows, and Linux.
@@ -80,7 +80,7 @@
   - `docs/branding/logo-square.png`
 - If updating icons or logos, regenerate platform icon files and verify the build scripts still reference the current paths.
 - If reusing an existing release tag, remember that it requires moving the tag and force-pushing it; otherwise the `release` job will publish the old artifact set.
-- When cutting a release, just create a CalVer git tag (e.g., `2026.06.23`) — version is auto-detected from the tag. Only `MyAppVersion` in `build/installer_windows.iss` still needs a manual update for the Windows installer.
+- When cutting a release, just create a CalVer git tag (e.g., `2026.06.24`) — version is auto-detected from the tag. Only `MyAppVersion` in `build/installer_windows.iss` still needs a manual update for the Windows installer.
 
 ## Lint/Test
 - Syntax: `python -m py_compile *.py`
