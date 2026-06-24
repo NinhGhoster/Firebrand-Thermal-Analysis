@@ -24,5 +24,21 @@ else
 fi
 
 ln -s /Applications "$STAGING/Applications"
-hdiutil create -volname "$APP_NAME_DISPLAY" -srcfolder "$STAGING" -ov -format UDZO -imagekey zlib-level=9 "$OUT_DMG"
+
+# GitHub Actions macOS runners frequently throw "Resource busy" due to Spotlight 
+# indexing the temporary volume. A retry loop is the standard workaround.
+MAX_RETRIES=5
+for i in $(seq 1 $MAX_RETRIES); do
+  if hdiutil create -volname "$APP_NAME_DISPLAY" -srcfolder "$STAGING" -ov -format UDZO -imagekey zlib-level=9 "$OUT_DMG"; then
+    break
+  else
+    echo "hdiutil create failed (attempt $i/$MAX_RETRIES). Retrying in 3 seconds..."
+    sleep 3
+    if [ "$i" -eq "$MAX_RETRIES" ]; then
+      echo "Failed to create DMG after $MAX_RETRIES attempts." >&2
+      exit 1
+    fi
+  fi
+done
+
 echo "DMG created at: $OUT_DMG"
