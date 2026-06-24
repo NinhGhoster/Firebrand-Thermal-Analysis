@@ -41,5 +41,6 @@ Categories=Utility;
 EOF
 
 export APPIMAGE_COMPRESS="${APPIMAGE_COMPRESS:-xz}"
+export ARCH="${ARCH:-x86_64}"
 appimagetool "$APPDIR" "$OUT"
 echo "AppImage created at: $OUT"
