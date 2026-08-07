@@ -28,26 +28,23 @@ The dashboard combines a large thermal canvas, live tracking overlays, a tempera
 Firebrand Thermal Analysis natively supports **NetCDF4 (`.nc`)** files heavily compressed by the companion [SEQ-CSQ-compressor](https://github.com/NinhGhoster/SEQ-CSQ-compressor) tool. This dramatically speeds up analysis workflows by letting you process 37GB thermal videos as ~10GB heavily-compressed random-access files without needing to wait for decompression.
 
 ## Requirements
-- FLIR Science File SDK installed (see `SDK/` for wheels).
-- Python 3.12 (conda environment recommended).
-- OpenCV via `opencv-python-headless` (included in the conda env).
+- FLIR Science File SDK wheels (see `SDK/`).
+- [uv](https://docs.astral.sh/uv/) (installs and manages CPython 3.12 automatically).
+- OpenCV via `opencv-python-headless`, declared in `pyproject.toml`.
 - macOS builds are Apple Silicon (arm64) only.
 
 ## Quick Start
 ```bash
-conda env create -f environment.yml
-conda activate firebrand-thermal
+uv sync
 
-# Install the FLIR SDK Python wheel for your OS
-# macOS:
-pip install "SDK/FileSDK-2024.7.1-cp312-cp312-macosx_10_14_universal2.whl"
-# Windows:
-# pip install "SDK/FileSDK-2024.7.1-cp312-cp312-win_amd64.whl"
-# Linux:
-# pip install "SDK/FileSDK-2024.7.1-cp312-cp312-linux_x86_64.whl"
+# macOS only: load the Tcl-9-compatible drag & drop library
+./scripts/patch_tkdnd_tcl9.sh
 
-python FirebrandThermalAnalysis.py
+uv run python FirebrandThermalAnalysis.py
 ```
+
+`pyproject.toml` pins the per-OS FLIR SDK wheel automatically via `[tool.uv.sources]`
+(macOS / Windows / Linux wheels in `SDK/`), so `uv sync` is all you need.
 
 
 
@@ -126,7 +123,8 @@ Each row is one detected firebrand in a frame.
 
 
 ## Build & Package
-Builds must be done on the target OS with FLIR SDK installed. PyInstaller is included in `environment.yml`.
+Builds must be done on the target OS with FLIR SDK installed. PyInstaller is in the `dev`
+dependency group of `pyproject.toml` and is installed by the build scripts via `uv sync --group dev`.
 
 ```bash
 # macOS
@@ -139,7 +137,7 @@ Builds must be done on the target OS with FLIR SDK installed. PyInstaller is inc
 ./build/build_linux.sh && ./build/package_linux_appimage.sh
 ```
 
-CI via `.github/workflows/build.yml` builds all platforms on tag push (e.g. `v0.1.0`).
+CI via `.github/workflows/build.yml` builds all platforms on tag push (e.g. `2026.06.24`) or `workflow_dispatch`.
 
 Optional env vars for all platforms: `FLIR_SDK_WHEEL`, `FLIR_SDK_LIB_DIR`, `FLIR_SDK_BIN_DIR`.
 

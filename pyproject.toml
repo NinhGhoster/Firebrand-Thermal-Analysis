@@ -1,0 +1,40 @@
+[project]
+name = "firebrand-thermal-analysis"
+version = "2026.06.24"
+description = "Firebrand Thermal Analysis dashboard for FLIR SDK radiometric files"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "customtkinter>=5.2.2",
+    "darkdetect>=0.8.0",
+    "filesdk",
+    "netCDF4>=1.7.4",
+    "numpy<2",
+    "opencv-python-headless>=4.10",
+    "pillow>=10.0",
+    "tkinterdnd2-universal>=0.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pyinstaller>=6.0",
+]
+
+[tool.uv.sources]
+# FLIR SDK provides per-OS cp312 wheels. Pick the matching one at sync time.
+filesdk = [
+    { path = "SDK/FileSDK-2024.7.1-cp312-cp312-macosx_10_14_universal2.whl", marker = "sys_platform == 'darwin'" },
+    { path = "SDK/FileSDK-2024.7.1-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32'" },
+    { path = "SDK/FileSDK-2024.7.1-cp312-cp312-linux_x86_64.whl", marker = "sys_platform == 'linux'" },
+]
+
+[tool.uv]
+package = false
+# netCDF4's Windows-ARM64 variant requires numpy>=2.x, which conflicts with the
+# pinned numpy<2 (required by PyInstaller). Restrict resolution to the platforms
+# this project actually builds for.
+environments = [
+    "sys_platform == 'darwin'",
+    "sys_platform == 'linux'",
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]

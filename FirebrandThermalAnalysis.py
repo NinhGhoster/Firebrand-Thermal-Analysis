@@ -50,7 +50,7 @@ except Exception:
 try:
     import cv2
 except Exception:
-    print("OpenCV required: pip install opencv-python-headless"); sys.exit(1)
+    print("OpenCV required: uv sync (installs opencv-python-headless)"); sys.exit(1)
 try:
     import fnv
     import fnv.file

@@ -16,18 +16,13 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: astral-sh/setup-uv@v8
         with:
           python-version: "3.12"
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install "numpy<2" opencv-python-headless pillow customtkinter darkdetect click netCDF4 pyinstaller tkinterdnd2-universal
-          python -m pip install "SDK/FileSDK-2024.7.1-cp312-cp312-macosx_10_14_universal2.whl"
       - name: Build app
         env:
           APP_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-        run: PYTHON_BIN=python bash build/build_macos.sh
+        run: bash build/build_macos.sh
       - name: Package DMG
         run: bash build/package_macos_dmg.sh
       - name: Upload artifacts
@@ -42,17 +37,11 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: astral-sh/setup-uv@v8
         with:
           python-version: "3.12"
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install "numpy<2" opencv-python-headless pillow customtkinter darkdetect click netCDF4 pyinstaller tkinterdnd2-universal
-          python -m pip install "SDK/FileSDK-2024.7.1-cp312-cp312-win_amd64.whl"
       - name: Build app
         env:
-          PYTHON_BIN: python
           APP_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: .\build\build_windows.ps1
         shell: pwsh
@@ -68,18 +57,13 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: astral-sh/setup-uv@v8
         with:
           python-version: "3.12"
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y python3-tk libgl1 libglib2.0-0 libfuse2
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install "numpy<2" opencv-python-headless pillow customtkinter darkdetect click netCDF4 pyinstaller tkinterdnd2-universal
-          python -m pip install "SDK/FileSDK-2024.7.1-cp312-cp312-linux_x86_64.whl"
       - name: Install appimagetool
         run: |
           curl -L -o appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
@@ -89,7 +73,7 @@ jobs:
       - name: Build app
         env:
           APP_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-        run: PYTHON_BIN=python bash build/build_linux.sh
+        run: bash build/build_linux.sh
       - name: Package AppImage
         run: bash build/package_linux_appimage.sh
       - name: Upload artifacts

@@ -1,18 +1,17 @@
 $ErrorActionPreference = "Stop"
 
-# Build on Windows only. Requires FLIR SDK and PyInstaller installed.
-# Optional env vars:
-# - PYTHON_BIN: python executable (default: python)
-# - FLIR_SDK_LIB_DIR: directory containing FLIR SDK DLLs
-# - FLIR_SDK_BIN_DIR: directory containing FLIR SDK binaries
+# Build on Windows only. Uses uv to provision the build env.
+# The project's pyproject.toml pins the per-OS FLIR SDK wheel via [tool.uv.sources],
+# so `uv sync` handles all dependencies (including the dev group: pyinstaller).
+# Optional env vars (custom SDK overrides):
 # - FLIR_SDK_WHEEL: path to a prebuilt FileSDK wheel (preferred)
 # - FLIR_SDK_PYTHON_DIR: FLIR SDK python folder containing setup.py
 # - FLIR_SDK_SHADOW_DIR: shadow dir for wheel build (default: C:\temp\flir_sdk_build)
+# - FLIR_SDK_LIB_DIR: directory containing FLIR SDK DLLs
+# - FLIR_SDK_BIN_DIR: directory containing FLIR SDK binaries
 
 $AppName = "FirebrandThermalAnalysis"
 $Entry = "FirebrandThermalAnalysis.py"
-$Python = $env:PYTHON_BIN
-if (-not $Python) { $Python = "python" }
 $IconPath = "docs\\logo.ico"
 $LogoData = "docs\\branding\\logo-square.png;docs\\branding"
 
@@ -24,6 +23,24 @@ if (-not $Version) {
 if (-not $Version) { $Version = "dev" }
 Set-Content -Path "VERSION" -Value $Version -NoNewline
 Write-Host "Building version: $Version"
+
+uv sync --group dev
+
+if ($env:FLIR_SDK_WHEEL) {
+  uv pip install --reinstall-package filesdk $env:FLIR_SDK_WHEEL
+} elseif ($env:FLIR_SDK_PYTHON_DIR) {
+  $ShadowDir = $env:FLIR_SDK_SHADOW_DIR
+  if (-not $ShadowDir) { $ShadowDir = "C:\\temp\\flir_sdk_build" }
+  New-Item -ItemType Directory -Force -Path $ShadowDir | Out-Null
+  uv run python "$env:FLIR_SDK_PYTHON_DIR\\setup.py" bdist_wheel --shadow-dir $ShadowDir
+  $Wheel = Get-ChildItem -Path "$ShadowDir\\dist" -Filter *.whl | Select-Object -First 1
+  if ($Wheel) {
+    uv pip install --reinstall-package filesdk $Wheel.FullName
+  } else {
+    Write-Error "No wheel found in $ShadowDir\\dist"
+    exit 1
+  }
+}
 
 $opts = @(
   "--windowed",
@@ -38,24 +55,8 @@ $opts = @(
   $Entry
 )
 
-if ($env:FLIR_SDK_WHEEL) {
-  & $Python -m pip install $env:FLIR_SDK_WHEEL
-} elseif ($env:FLIR_SDK_PYTHON_DIR) {
-  $ShadowDir = $env:FLIR_SDK_SHADOW_DIR
-  if (-not $ShadowDir) { $ShadowDir = "C:\\temp\\flir_sdk_build" }
-  New-Item -ItemType Directory -Force -Path $ShadowDir | Out-Null
-  & $Python "$env:FLIR_SDK_PYTHON_DIR\\setup.py" bdist_wheel --shadow-dir $ShadowDir
-  $Wheel = Get-ChildItem -Path "$ShadowDir\\dist" -Filter *.whl | Select-Object -First 1
-  if ($Wheel) {
-    & $Python -m pip install $Wheel.FullName
-  } else {
-    Write-Error "No wheel found in $ShadowDir\\dist"
-    exit 1
-  }
-}
-
 if ($env:FLIR_SDK_LIB_DIR) { $opts += @("--add-binary","$env:FLIR_SDK_LIB_DIR\\*;.") }
 if ($env:FLIR_SDK_BIN_DIR) { $opts += @("--add-binary","$env:FLIR_SDK_BIN_DIR\\*;.") }
 
-& $Python -m PyInstaller @opts
+uv run --group dev python -m PyInstaller @opts
 Write-Host "Build output: dist\\$AppName.exe"

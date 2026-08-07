@@ -22,28 +22,32 @@
 - If multiple releases happen on the same day, append a patch suffix: `YYYY.MM.DD.1`, `YYYY.MM.DD.2`, etc.
 
 ## Setup
-- Install FLIR SDK from `SDK/`.
-- Create environment: `conda env create -f environment.yml` (includes `customtkinter`).
-- Activate: `conda activate firebrand-thermal`.
-- Install SDK wheel (per OS) from `SDK/`.
-- Linux: if using the SDK installer, build a wheel from the installed SDK Python dir.
+- Install [uv](https://docs.astral.sh/uv/) (`brew install uv` or the standalone installer).
+- Install FLIR SDK wheels from `SDK/` (pinned per-OS via `[tool.uv.sources]` in `pyproject.toml`).
+- Create the environment: `uv sync` (uses the managed CPython 3.12 declared in `.python-version`; `uv run` downloads it on first use).
+- macOS only: after every `uv sync`, run `scripts/patch_tkdnd_tcl9.sh` to load tkdnd 2.9.5 (Tcl 9) —
+  both Homebrew `python-tk` and uv's python-build-standalone CPython ship Tcl/Tk 9.0.x, and the bundled
+  tkdnd 2.9.3 is Tcl-8.6-only (`cannot find symbol "tkdnd_Init"`).
+- Linux: if using the SDK installer instead of the wheel, build a wheel from the installed SDK Python dir.
 
 ## Update Environment
-- `conda env update -f environment.yml --prune`
+- `uv sync` (re-resolves `pyproject.toml`/`uv.lock`; `uv run` syncs automatically when stale).
+- Tcl-9 environments: `./scripts/patch_tkdnd_tcl9.sh` must be re-run after any `uv sync`.
 
 ## Run
-- Dashboard: `python FirebrandThermalAnalysis.py`
-- Single script: `python <script>.py`
+- Dashboard: `uv run python FirebrandThermalAnalysis.py`
+- Single script: `uv run python <script>.py`
 
 ## Build (PyInstaller)
+- All build scripts provision their environment with `uv sync --group dev` (PyInstaller lives in the `dev` dependency group), so no pre-activation is needed.
 - macOS: `./build/build_macos.sh`
 - Windows: `.\build\build_windows.ps1` (single-file `dist/FirebrandThermalAnalysis.exe`)
 - Linux: `./build/build_linux.sh`
-- GitHub Actions: `.github/workflows/build.yml` (runs on `workflow_dispatch` and CalVer tags like `2026.06.24`)
+- GitHub Actions: `.github/workflows/build.yml` (uses `astral-sh/setup-uv`; runs on `workflow_dispatch` and CalVer tags like `2026.06.24`)
 - Optional env vars:
   - `FLIR_SDK_WHEEL` (preferred) or `FLIR_SDK_PYTHON_DIR` + `FLIR_SDK_SHADOW_DIR`
   - `FLIR_SDK_LIB_DIR` + `FLIR_SDK_BIN_DIR` for SDK runtime libraries
-- Build scripts include `--collect-all numpy`, `--collect-all fnv`, and `--collect-all tkinterdnd2` to bundle critical packages.
+- Build scripts include `--collect-all fnv` and `--collect-all tkinterdnd2` to bundle critical packages.
 
 ## Package Installers
 - macOS: `./build/package_macos_dmg.sh`
@@ -51,15 +55,15 @@
 - Linux: `./build/package_linux_appimage.sh` (requires `appimagetool`; uses `docs/branding/logo-square.png`)
 
 ## Release Lessons
-- `2026.06.24` switches to CalVer date-based versioning (no `v` prefix). Adds `--collect-all numpy` to all build scripts (later reverted) and pins `numpy<2` in `environment.yml` and CI to fix the Windows `ModuleNotFoundError: No module named 'numpy._core._multiarray_umath'` crash. Introduces auto-versioning from git tags — `APP_VERSION` is no longer hardcoded.
+- `2026.06.24` switches to CalVer date-based versioning (no `v` prefix). Adds `--collect-all numpy` to all build scripts (later reverted) and pins `numpy<2` in CI (and the then-current conda env) to fix the Windows `ModuleNotFoundError: No module named 'numpy._core._multiarray_umath'` crash. Introduces auto-versioning from git tags — `APP_VERSION` is no longer hardcoded.
 - `0.0.4` introduces macOS compatibility fixes for Drag and Drop (`tkinterdnd2-universal`) and refined UI legibility (separated color bar limits, outlined canvas overlays).
 - `0.0.3` regressed compared with `0.0.2` because the app was changed to load branding assets from `docs/branding/logo-square.png`, but the build scripts were still using direct PyInstaller CLI builds that did not bundle that asset. The packaged macOS app also failed at startup with `customtkinter not found in libs/` because the code still assumed a source-tree `libs/` folder. Packaged apps must import from bundled modules first and only fall back to local `libs/` during source runs.
 - `0.0.2` initial packaged release with PyInstaller build scripts for macOS, Windows, and Linux.
 
 ## Hard Lessons
-- **numpy 2.x + PyInstaller:** numpy 2.x is currently unstable with PyInstaller on Windows because of how its new `_core` C-extensions load DLLs. Using `--collect-all numpy` breaks the build even further by copying `.lib` files as data instead of properly packing `.pyd` extensions, resulting in `Incompatible compiled module files: _multiarray_umath.cp312-win_amd64.lib`. Fix: DO NOT use `--collect-all numpy`. Instead, pin `numpy<2` in CI and `environment.yml`. Numpy 1.x works perfectly with PyInstaller.
+- **numpy 2.x + PyInstaller:** numpy 2.x is currently unstable with PyInstaller on Windows because of how its new `_core` C-extensions load DLLs. Using `--collect-all numpy` breaks the build even further by copying `.lib` files as data instead of properly packing `.pyd` extensions, resulting in `Incompatible compiled module files: _multiarray_umath.cp312-win_amd64.lib`. Fix: DO NOT use `--collect-all numpy`. Instead, pin `numpy<2` (already the case in `pyproject.toml`). Numpy 1.x works perfectly with PyInstaller.
 - Do not assume "works in conda" means "works in packaged app". Source runs can see the repo tree; PyInstaller builds cannot unless files are explicitly bundled.
-- Always guard path injections with `if not getattr(sys, "frozen", False):`. PyInstaller must explicitly be told to crawl local dependency folders during the build phase; you MUST include `--paths libs` in all three `build_*.sh/.ps1` scripts!
+- Always guard path injections with `if not getattr(sys, "frozen", False):`. The macOS and Linux build scripts include `--paths libs` so PyInstaller crawls the local dependency cache; `build_windows.ps1` intentionally omits it (see the cross-platform contamination caveat below).
 - The root rule: whenever a runtime path changes, update both the application code and every platform build script (`build_macos.sh`, `build_windows.ps1`, `build_linux.sh`, packaging scripts if relevant).
 - The build scripts currently do not use `FirebrandThermalAnalysis.spec`; they invoke PyInstaller directly. Any icon/data/bundle-identifier change must therefore be reflected in the scripts too, not just in the `.spec` file.
 - For frozen apps, use the `_MEIPASS`-aware resource helper pattern rather than `os.path.dirname(__file__)` alone.
@@ -83,9 +87,9 @@
 - When cutting a release, just create a CalVer git tag (e.g., `2026.06.24`) — version is auto-detected from the tag. Only `MyAppVersion` in `build/installer_windows.iss` still needs a manual update for the Windows installer.
 
 ## Lint/Test
-- Syntax: `python -m py_compile *.py`
-- Tests: `python -m pytest tests/ -v`
-- Optional: `flake8`, `black --check`, `mypy *.py`
+- Syntax: `uv run python -m py_compile *.py`
+- Tests: `uv run python -m pytest tests/ -v`
+- Optional: `uv run flake8`, `uv run black --check .`, `uv run mypy *.py`
 
 ## Keyboard Shortcuts
 | Key | Action |
@@ -126,4 +130,4 @@
 - **Comments**: `#` for inline explanations.
 - **Structure**: Private methods with `_`; constants at top; descriptive names; follow existing patterns.
 - **Catastrophic PyInstaller Cross-Platform Contamination:** NEVER use `--paths libs` in PyInstaller build scripts (`build_windows.ps1`, `build_linux.sh`) if the `libs/` directory is committed to the repository and was populated on a different OS (e.g. macOS). PyInstaller's AST analyzer will aggressively prioritize `libs/` over `site-packages` and will bundle the Mac Python files for binary extensions like `numpy` (e.g. `numpy 2.x`), while the PyInstaller binary hook will dynamically copy `.lib` and `.pyd` files from the local runner's `site-packages` (e.g. `numpy 1.26.4`). This results in a Frankenstein build containing Python code from one version/OS and binary extensions from another version/OS, causing obscure crashes like `The following compiled module files exist... _multiarray_umath.cp312-win_amd64.lib`.
-- **Fix for Frankenstein Build:** Removed `--paths libs` from all build scripts. Explicitly added `customtkinter`, `darkdetect`, `netCDF4`, `tkinterdnd2-universal`, and `click` to the `pip install` step in `.github/workflows/build.yml` so that PyInstaller cleanly resolves all dependencies from the runner's native `site-packages`.
+- **Fix for Frankenstein Build:** Removed `--paths libs` from all build scripts. Explicitly added `customtkinter`, `darkdetect`, `netCDF4`, `tkinterdnd2-universal`, and `click` to the `pip install` step in `.github/workflows/build.yml` so that PyInstaller cleanly resolves all dependencies from the runner's native `site-packages`. (After the uv migration these same dependencies are declared in `pyproject.toml` and installed by `uv sync --group dev`.)
