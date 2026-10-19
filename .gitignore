@@ -18,3 +18,9 @@ venv/
 /build/_dmg/
 /dist/
 /VERSION
+
+# Thermal data and derived caches — never commit (S9.nc alone is 7.3 GB)
+*.nc
+*.seq
+*.csq
+*.detections.json

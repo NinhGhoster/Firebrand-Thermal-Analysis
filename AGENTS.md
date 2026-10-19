@@ -120,6 +120,50 @@
 - Color bar gradient updates when paused; skipped during playback for performance.
 - Single-char shortcuts are suppressed when focus is in an Entry/Combobox.
 
+## Roboflow Workflow Integration
+- `roboflow_particles.py` runs the serverless Roboflow workflow
+  "Find flying tiny white particles" (`firebrand` workspace, RF-DETR 2xLarge).
+  Image-only input — NOT for live video (that uses Roboflow's separate WebRTC path).
+- HTTP uses stdlib `urllib` only (no `requests`/SDK). No new dependencies and no
+  `uv sync` needed for this module alone.
+- API key is read from `ROBOFLOW_API_KEY` at runtime — never commit or hardcode it
+  (get one at app.roboflow.com/settings/api). Optional env tunables:
+  `ROBOFLOW_TIMEOUT` (default 60), `ROBOFLOW_MAX_RETRIES` (default 3), `ROBOFLOW_IMAGES_DIR`.
+- Public API: `run_workflow(image, ...)` -> `WorkflowRunResult` (`.entries` = one dict per
+  input image keyed by the workflow's own output names; base64 images decoded to disk;
+  polygon `points` stripped), `find_flying_particles(image)` also returns a flattened
+  detection list, helpers `iter_prediction_lists()` / `detection_count()`.
+- Errors are typed: `RoboflowWorkflowError` with `RoboflowConfigError`, `RoboflowAuthError`,
+  `RoboflowTimeoutError` subclasses; retries with exponential backoff on transient failures.
+- Tests: offline unit tests always run; `TestLiveWorkflow` in `tests/test_roboflow_particles.py`
+  auto-skips unless `ROBOFLOW_API_KEY` is set. Fixture: `tests/samples/particles_smoke.jpg`.
+
+## NC Video Player
+- `nc_player.py` is a lightweight plain-tkinter player for compressed NetCDF (`.nc`)
+  thermal files (`temperature[frame, y, x]`). Runs: `uv run python nc_player.py S9.nc`.
+- Playback: Space / Left-Right / Home-End / click-drag TimelineBar / `[`/`]` jump to
+  previous/next detected frame / `H` hottest frame. Render: Grayscale (default) or Inferno.
+  Overlays drawn with cv2, displayed via PIL ImageTk.
+- **Detection rendering matters more than the model**: the min-max render is dominated by
+  the hot plume, so tiny firebrands are invisible to the detector. The input sent to the
+  model is `render_detection_input()` — top-`DET_PERCENTILE` (99.9) percentile threshold,
+  connected blobs of `DET_MIN_AREA`–`DET_MAX_AREA` (4–60) px as white-on-black, upscaled
+  `DET_UPSCALE` (2x); model boxes are mapped back via `scale_detections()`. Live-verified:
+  frames that scored 0–2 detections with the old render now score 3–8.
+- Two backends toggled with `C`: **Roboflow** (`roboflow_particles.run_workflow()`, needs
+  `ROBOFLOW_API_KEY`) and **CV** (offline `find_ember_blobs()`, identical blob logic, free).
+- `D` detects the current frame, `B` the next 10 (background thread). `A` scans the WHOLE
+  video in the background (parallel pool `MODEL_WORKERS=8` for Roboflow; single-thread for
+  CV); press `A` again to stop. Scans are resumable: results persist to
+  `<base>.detections.json` (saved periodically + on close), identical frames are deduped by
+  render-byte hash, and track IDs are deterministically reassigned via `rebuild_tracks()`.
+- Stable track IDs come from the local `assign_tracks()` nearest-centroid helper (pure,
+  unit-tested). Detection buttons are disabled when no key is set AND mode is Roboflow;
+  CV mode works fully offline.
+- Pure helpers (`normalize_frame`, `render_rgb`, `detection_bbox`, `find_ember_blobs`,
+  `render_detection_input`, `scale_detections`, `assign_tracks`, `frame_from_x`,
+  `x_from_frame`, `hottest_stride`) are GUI-free and covered by `tests/test_nc_player.py`.
+
 ## Code Style Guidelines
 - **Imports**: Group stdlib, third-party, local; try/except for optional imports (PIL, cv2, fnv).
 - **Formatting**: 4 spaces indent, ~100 chars/line max, blank lines for readability.

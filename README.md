@@ -46,6 +46,62 @@ uv run python FirebrandThermalAnalysis.py
 `pyproject.toml` pins the per-OS FLIR SDK wheel automatically via `[tool.uv.sources]`
 (macOS / Windows / Linux wheels in `SDK/`), so `uv sync` is all you need.
 
+## Roboflow Workflow Integration
+`roboflow_particles.py` detects flying tiny white particles in visible-light imagery
+using the serverless Roboflow workflow
+`find-flying-tiny-white-particles-vfind-flying-tiny-white-particles-2-rfdetr-2xlarge-t1-logic`
+(`firebrand` workspace, RF-DETR 2xLarge). It uses only the Python standard library —
+**no new dependencies, no `uv sync` needed**.
+
+```bash
+export ROBOFLOW_API_KEY=<your key from app.roboflow.com/settings/api>
+uv run python - <<'PY'
+from roboflow_particles import run_workflow, detection_count
+
+result = run_workflow("path/to/image.jpg")   # file path, https URL, bytes, or {"type","value"} dict
+print(result.entry(0))                       # one entry per image, keyed by workflow output names
+print(detection_count(result.entries))       # number of flying particles found
+PY
+```
+
+- The API key is read from `ROBOFLOW_API_KEY` (never hardcoded; get it at
+  app.roboflow.com/settings/api). Optional tunables: `ROBOFLOW_TIMEOUT` (default 60 s),
+  `ROBOFLOW_MAX_RETRIES` (default 3), `ROBOFLOW_IMAGES_DIR` (default `roboflow_images`).
+- Image-shaped outputs (base64) are decoded and written to disk; raw polygon `points`
+  are stripped, and blobs are never logged or kept in memory.
+- Image inputs only. Live camera/stream video uses Roboflow's WebRTC path and is not
+  covered by this module.
+- Image inputs only. Live camera/stream video uses Roboflow's WebRTC path and is not
+  covered by this module.
+- Tests: `uv run python -m pytest tests/test_roboflow_particles.py -v`. The live smoke
+  test (`-k live`) calls the real endpoint and auto-skips when `ROBOFLOW_API_KEY` is unset.
+
+## NC Video Player
+`nc_player.py` is a lightweight viewer for the compressed NetCDF (`.nc`) thermal files,
+with firebrand detection (Roboflow or offline CV) and cross-frame tracking:
+
+```bash
+export ROBOFLOW_API_KEY=<your key>   # optional: only needed for the Roboflow backend
+uv run python nc_player.py S9.nc
+```
+
+- Playback: `Space` play/pause, `Left`/`Right` step, `Home`/`End` jump, click-drag the
+  **timeline bar** (green ticks = frames with detections). `[`/`]` hop between detected
+  frames, `H` jumps to the hottest frame.
+- Render style: **Grayscale** (default) or **Inferno** (dashboard look).
+- `D` detect the current frame; `B` detect the next 10 frames (background thread); results
+  are cached per frame and shown as colored boxes with stable `#track` IDs and confidence.
+- `C` toggles the detection backend:
+  - **Roboflow** – the serverless "Find flying tiny white particles" workflow. The input
+    sent to the model is NOT the raw render: the hot plume dominates min-max contrast and
+    hides embers. Instead, the hottest tail (top 99.9 %) is extracted as small white blobs
+    on black and upscaled 2x, which lifts detections from 0–2 to 3–8 per frame.
+  - **CV** – the same blob extraction runs locally (free, no key, works offline).
+- `A` scans the **whole video** in the background (parallel for Roboflow; press `A` again
+  to stop). Scans are resumable and persisted to `<file>.detections.json`, so interrupted
+  scans pick up where they left off and results survive restarts.
+- Works without an API key (viewing + CV detection always available).
+
 
 
 ## Using the Dashboard
@@ -154,6 +210,8 @@ Optional env vars for all platforms: `FLIR_SDK_WHEEL`, `FLIR_SDK_LIB_DIR`, `FLIR
 Firebrand-Thermal-Analysis/
 ├── FirebrandThermalAnalysis.py  # main dashboard UI and export logic
 ├── FTA_CLI.py                   # headless CLI tracking + export driver
+├── nc_player.py                 # lightweight .nc viewer + Roboflow detection overlay
+├── roboflow_particles.py        # Roboflow "flying tiny white particles" workflow client
 ├── SDK/                         # FLIR SDK installers and wheels
 │   └── tutorial_scripts/        # FLIR SDK python usage examples
 ├── build/                       # platform build scripts and packaging helpers
@@ -162,6 +220,7 @@ Firebrand-Thermal-Analysis/
 │   └── screenshots/             # interface previews and captured UI examples
 ├── dist/                        # packaged outputs (generated/ignored)
 └── tests/                       # unit tests (pytest)
+    └── samples/particles_smoke.jpg  # Roboflow live-test fixture
 ```
 
 **Project Team:** H. Nguyen, J. Filippi, T. Penman, M. Peace, A. Filkov
