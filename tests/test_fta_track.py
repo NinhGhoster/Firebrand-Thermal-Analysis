@@ -143,6 +143,34 @@ class TestFirebrand:
         assert all(t["max_contrast_c"] < 40 for t in movers)
 
 
+    def test_diffuse_gas_parcel_is_rejected_but_a_solid_ember_is_not(self):
+        # Two objects rise through cold air from the sample, same size and speed.
+        # The gas parcel is a smooth hump peaking at 340 C that fades into a warm
+        # plume; the ember is a hard-edged 600 C block in cold air.
+        yy, xx = np.mgrid[0:H, 0:W]
+        def frames():
+            for i, f in _scene(150, sample_from=10):
+                k = i - 40
+                if k >= 0:
+                    for cx, kind in ((100, "gas"), (220, "ember")):
+                        cy = 175 - 5 * k
+                        if cy < 20:
+                            continue
+                        if kind == "gas":
+                            r2 = (xx - cx) ** 2 + (yy - cy) ** 2
+                            hump = 260.0 + 80.0 * np.exp(-r2 / (2 * 6.0 ** 2))
+                            f[:] = np.maximum(f, np.where(r2 < 30 ** 2, hump, f))
+                        else:
+                            f[cy - 4:cy + 4, cx - 4:cx + 4] = 600.0
+                yield i, f
+        res = _run(frames())
+        ember = [t for t in res["tracks"] if abs(t["launch_x_px"] - 220) < 15 and t["n_det"] >= 10]
+        gas = [t for t in res["tracks"] if abs(t["launch_x_px"] - 100) < 15 and t["n_det"] >= 10]
+        assert ember and all(t["is_firebrand"] for t in ember)
+        assert gas and not any(t["is_firebrand"] for t in gas)
+        assert max(t["edge_grad"] for t in gas) < 30 < min(t["edge_grad"] for t in ember)
+
+
 class TestTracker:
     def test_crossing_embers_keep_their_ids(self):
         # paths cross at x ~ 160, passing 3 px apart vertically

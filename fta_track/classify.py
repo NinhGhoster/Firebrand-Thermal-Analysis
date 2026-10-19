@@ -11,7 +11,9 @@ A confirmed track is counted as a firebrand when it
   1. has at least `min_track_dets` detections,
   2. has at least `min_cold_dets` detections in cold space whose contrast
      (blob peak minus what those pixels usually read: the temporal background,
-     or the surrounding ring for older outputs without it) is >= `min_contrast_c`,
+     or the surrounding ring for older outputs without it) is >= `min_contrast_c`
+     and whose edge gradient is >= `min_edge_grad` (a solid object's hard edge,
+     not a parcel of hot gas fading into the plume),
   3. moves a net `min_disp_m`, and
   4. if it has >= 4 motion vectors, has straightness (net / path length) of at
      least `min_straightness`. Fewer vectors are not scored: a straightness from
@@ -52,13 +54,15 @@ def track_features(points: List[tuple], fps: float, s: float, cold: np.ndarray, 
     tmax = np.array([d["max_c"] for _, d in points])
     tmean = np.array([d["mean_c"] for _, d in points])
     area = np.array([d["area"] for _, d in points], dtype=float)
+    egrad = np.array([d.get("edge_grad", np.nan) for _, d in points], dtype=float)
     bg_t = np.array([d.get("bg_t_c", np.nan) for _, d in points], dtype=float)
     bg_r = np.array([d["bg_c"] for _, d in points], dtype=float)
     contrast = tmax - np.where(np.isfinite(bg_t), bg_t, bg_r)
     xi = np.clip(np.round(xs).astype(int), 0, W - 1)
     yi = np.clip(np.round(ys).astype(int), 0, H - 1)
     in_cold = cold[yi, xi]
-    evidence = in_cold & (np.nan_to_num(contrast, nan=-1.0) >= p.min_contrast_c)
+    solid = ~(np.nan_to_num(egrad, nan=np.inf) < p.min_edge_grad)   # missing (older outputs) counts as solid
+    evidence = in_cold & (np.nan_to_num(contrast, nan=-1.0) >= p.min_contrast_c) & solid
 
     n = len(points)
     # typical frame-to-frame size change: a solid firebrand stays near 0, gas puffs do not
@@ -94,10 +98,11 @@ def track_features(points: List[tuple], fps: float, s: float, cold: np.ndarray, 
         "cooling_c_per_s": cool,
         "mean_area_px": float(area.mean()),
         "area_jump": area_jump,
+        "edge_grad": float(np.nanmedian(egrad)) if np.isfinite(egrad).any() else float("nan"),
         # per-point series, written to track_points.csv.gz
         "_series": {"frame": frames.astype(int), "t": t, "x_px": xs, "y_px": ys, "X": X, "Y": Y,
                     "vx": vx, "vy": vy, "speed": speed, "max_c": tmax, "mean_c": tmean, "area": area,
-                    "contrast": contrast, "cold": in_cold},
+                    "contrast": contrast, "edge_grad": egrad, "cold": in_cold},
     }
 
 

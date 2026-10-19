@@ -54,7 +54,8 @@ class Params:
     env_frac: float = 0.05        # long-term hot fraction that marks rig and flame
     env_dilate_px: int = 5
     min_contrast_c: float = 80.0  # blob peak minus its temporal background (ring if unavailable)
-    min_cold_dets: int = 2        # detections in cold space at >= min_contrast_c
+    min_edge_grad: float = 30.0   # degC per pixel across the blob edge: solid, not gas
+    min_cold_dets: int = 2        # detections in cold space meeting both of the above
     min_disp_m: float = 0.05      # net displacement
     min_straightness: float = 0.5 # net / path length, applied only with >= 4 motion vectors
 

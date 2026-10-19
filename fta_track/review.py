@@ -29,7 +29,7 @@ import numpy as np
 
 # kept (hidden) with each clip, so verdicts can be turned into threshold curves
 FEATURES = ("n_det", "n_cold", "n_evidence", "max_contrast_c", "displacement_m", "straightness",
-            "peak_c", "mean_speed_mps", "duration_s", "mean_area_px", "area_jump")
+            "peak_c", "mean_speed_mps", "duration_s", "mean_area_px", "area_jump", "edge_grad")
 SPRITE_COLS = 12
 TILE = 192            # clip frame size in the sprite, px
 MAX_CLIP_FRAMES = 96

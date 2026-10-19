@@ -10,7 +10,11 @@ threshold, 8-connected components, statistics on the component mask), with:
   - a temporal background: the median, over frames sampled across a few
     seconds, of what the blob's own pixels read. A flicker on a rail that sits
     near 290 C has a temporal background near 290; an ember crossing dark air
-    has one near the air temperature.
+    has one near the air temperature,
+  - the edge gradient: the temperature gradient (degC per pixel) across the
+    blob's boundary. A solid firebrand is optically thick with a hard edge, so
+    temperature drops by hundreds of degrees within a pixel or two; a parcel of
+    hot gas is optically thin and diffuse, and fades into the plume around it.
 """
 
 from __future__ import annotations
@@ -19,6 +23,9 @@ from typing import Dict, List, Optional, Sequence
 
 import cv2
 import numpy as np
+
+
+_CROSS = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
 
 
 def detect_blobs(frame: np.ndarray, hot: np.ndarray, persistent: np.ndarray,
@@ -49,6 +56,14 @@ def detect_blobs(frame: np.ndarray, hot: np.ndarray, persistent: np.ndarray,
         ring = ~hot[ey0:ey1, ex0:ex1] & ~blob
         bg = float(np.median(sub[ring])) if ring.any() else float("nan")
 
+        # the temperature step across the boundary, in degC per pixel: the blob's
+        # boundary pixels against the pixels just outside them. (A gradient filter
+        # would read zero on a 1-px ember, whose neighbours on both sides are cold.)
+        b8 = blob.astype(np.uint8)
+        edge = blob & ~cv2.erode(b8, _CROSS, borderType=cv2.BORDER_CONSTANT, borderValue=0).astype(bool)
+        outer = cv2.dilate(b8, _CROSS).astype(bool) & ~blob
+        edge_grad = float(np.median(sub[edge]) - np.median(sub[outer])) if outer.any() else float("nan")
+
         bg_t = float("nan")
         if samples:
             own = labels[y0:y0 + h, x0:x0 + w] == lid
@@ -76,6 +91,7 @@ def detect_blobs(frame: np.ndarray, hot: np.ndarray, persistent: np.ndarray,
             "median_c": round(float(np.median(temps)), 2),
             "bg_c": round(bg, 2) if np.isfinite(bg) else bg,
             "bg_t_c": round(bg_t, 2) if np.isfinite(bg_t) else bg_t,
+            "edge_grad": round(edge_grad, 2) if np.isfinite(edge_grad) else edge_grad,
             "excess": round(float(np.sum(temps - bg)), 1) if np.isfinite(bg) else float("nan"),
         })
     return out
