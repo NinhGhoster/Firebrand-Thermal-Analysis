@@ -17,7 +17,7 @@ class Params:
     # Nothing before it can be a firebrand.
     ignition_min_px: int = 20
     min_area_px: int = 1          # a 1-px blob may start a track; tracking filters noise
-    max_area_px: int = 600        # ~16 cm^2 at 1.62 mm/px
+    max_area_px: int = 2000       # ~52 cm^2 at 1.62 mm/px: large bark pieces must not be lost
     ring_px: int = 3              # width of the local-background ring around a blob
 
     # --- persistent-hot mask (burning sample, burner, flame) --------------
@@ -29,7 +29,7 @@ class Params:
     persist_dilate_px: int = 3
 
     # --- tracking ----------------------------------------------------------
-    v_max_mps: float = 8.0        # sets the search radius for a track with no velocity yet
+    v_max_mps: float = 4.0        # sets the search radius for a track with no velocity yet
     gate_min_px: float = 15.0     # search radius around the prediction for a moving track
     gate_speed_frac: float = 0.5  # ... plus this fraction of the predicted speed (px/frame)
     kalman_q_px: float = 3.0      # process noise: unmodelled acceleration, px/frame^2
@@ -38,9 +38,15 @@ class Params:
     min_hits: int = 3             # detections needed before a track is confirmed
 
     # --- firebrand classification -----------------------------------------
+    # The rig (burner tray, frame, panels) and the flame sit at or near the hot
+    # threshold for much of a burn, and pixels hovering there flicker into blobs.
+    # "Cold space" is everywhere hot in less than env_frac of post-ignition frames;
+    # a firebrand must be seen there, clearly hotter than its surroundings.
     min_track_dets: int = 4
-    start_tol_px: float = 15.0    # must start within this distance of the source region
-    min_exit_m: float = 0.05      # ... and end at least this far from it
+    env_frac: float = 0.05        # long-term hot fraction that marks rig and flame
+    env_dilate_px: int = 5
+    min_contrast_c: float = 80.0  # blob peak minus the median of its surrounding ring
+    min_cold_dets: int = 2        # detections in cold space at >= min_contrast_c
     min_disp_m: float = 0.05      # net displacement
     min_straightness: float = 0.5 # net / path length, applied only with >= 4 motion vectors
 

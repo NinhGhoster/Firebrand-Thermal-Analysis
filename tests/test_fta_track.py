@@ -110,10 +110,23 @@ class TestFirebrand:
         assert sum(t["is_firebrand"] for t in res["tracks"]) == 1
 
     def test_ember_that_stays_on_the_sample_is_rejected(self):
-        # wanders 2 px along the sample's top edge and dies: never leaves the source region
+        # creeps along the sample's top edge: never reaches cold space
         stay = (40, 140, 176, 0.5, 0.0, 700.0, 0.0, 2)
         res = _run(_scene(80, sample_from=10, embers=[stay]))
         assert not any(t["is_firebrand"] for t in res["tracks"])
+
+    def test_threshold_flicker_on_a_warm_plate_is_rejected(self):
+        # A plate at 295 C never reaches the hot threshold, so it is cold space by
+        # the hot map; a 310 C blob sliding across it is only 15 C above its
+        # surroundings. This is the rig-edge flicker seen in the real recordings.
+        def frames():
+            for i, f in _scene(150, sample_from=10, embers=[(40, 20, 40, 3.0, 0.0, 310.0, 0.0, 2)]):
+                plate = f[30:60, :]          # full width: the blob never leaves the plate
+                plate[plate < 300] = 295.0
+                yield i, f
+        res = _run(frames())
+        movers = [t for t in res["tracks"] if t["displacement_m"] > 0.05]
+        assert movers and all(t["reject_reason"] == "low_contrast" for t in movers)
 
 
 class TestTracker:

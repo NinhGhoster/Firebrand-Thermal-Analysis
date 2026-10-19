@@ -7,6 +7,7 @@ temperature histories. The desktop app is FirebrandThermalAnalysis.py.
 
     python FTA_CLI.py run S9.nc --out results/S9 --label fibrous_bark/E_radiata/High/50kW/S9
     python FTA_CLI.py run S9.nc --out test --stop 3000 --qa --set persist_frac=0.2
+    python FTA_CLI.py retrack results/ --set min_contrast_c=100   # re-track every recording, no NetCDF needed
     python FTA_CLI.py aggregate results/ --out firebrand_counts.csv
     python FTA_CLI.py review-make results/S9 S9.nc --batch review/b1 --label fibrous_bark/E_radiata/High/50kW/S9
     python FTA_CLI.py review-score review/b1 verdicts.json
@@ -55,6 +56,26 @@ def cmd_run(a) -> int:
     return 0
 
 
+def cmd_retrack(a) -> int:
+    from fta_track.export import retrack
+    p = _parse_sets(a.set)
+    done = 0
+    for root, _, files in sorted(os.walk(a.results)):
+        if "summary.json" not in files or "detections.csv.gz" not in files:
+            continue
+        try:
+            res = retrack(root, p)
+        except ValueError as e:
+            sys.exit(str(e))
+        fb = sum(1 for t in res["tracks"] if t["is_firebrand"])
+        print(f"{os.path.relpath(root, a.results)}: {fb} firebrands, {len(res['tracks'])} confirmed tracks")
+        done += 1
+    if not done:
+        sys.exit(f"no results with detections.csv.gz under {a.results}")
+    print(f"re-tracked {done} recording(s)")
+    return 0
+
+
 # Factor levels by position in the Level 2 path (the run label).
 _FACTORS = {
     "branchlet": ["fuel_type", "species", "hrr", "structure"],
@@ -83,14 +104,16 @@ def cmd_aggregate(a) -> int:
             "duration_s": s["n_frames"] / s["fps"] if s.get("fps") else None,
             "fps": s["fps"],
             "m_per_px": s["m_per_px"],
-            "code_version": s["code_version"],
+            "detection_code_version": s.get("detection_code_version"),
+            "tracking_code_version": s.get("tracking_code_version"),
+            "retracked": s.get("retracked", False),
         })
         rows.append(row)
     if not rows:
         sys.exit(f"no summary.json found under {a.results}")
     cols = ["recording", "fuel_type", "species", "hazard_rating", "hrr", "structure", "section",
             "shape", "length", "firebrand_count", "confirmed_tracks", "ignition_time_s",
-            "duration_s", "fps", "m_per_px", "code_version"]
+            "duration_s", "fps", "m_per_px", "detection_code_version", "tracking_code_version", "retracked"]
     rows.sort(key=lambda r: r["recording"])
     with open(a.out, "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=cols, extrasaction="ignore")
@@ -132,6 +155,12 @@ def main(argv=None) -> int:
     r.add_argument("--set", action="append", metavar="NAME=VALUE",
                    help="override a parameter (repeatable); see fta_track/params.py")
     r.set_defaults(func=cmd_run)
+
+    t = sub.add_parser("retrack", help="re-run tracking and classification from saved detections (no NetCDF)")
+    t.add_argument("results", help="one recording's results directory, or a root searched recursively")
+    t.add_argument("--set", action="append", metavar="NAME=VALUE",
+                   help="override a tracking/classification parameter (repeatable)")
+    t.set_defaults(func=cmd_retrack)
 
     g = sub.add_parser("aggregate", help="collect every summary.json into one counts table")
     g.add_argument("results", help="results root (searched recursively)")

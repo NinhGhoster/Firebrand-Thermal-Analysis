@@ -27,6 +27,9 @@ from typing import Dict, List
 import cv2
 import numpy as np
 
+# kept (hidden) with each clip, so verdicts can be turned into threshold curves
+FEATURES = ("n_det", "n_cold", "n_evidence", "max_contrast_c", "displacement_m", "straightness",
+            "peak_c", "mean_speed_mps", "duration_s", "mean_area_px")
 SPRITE_COLS = 12
 TILE = 192            # clip frame size in the sprite, px
 MAX_CLIP_FRAMES = 96
@@ -108,8 +111,23 @@ def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
     tracks = _read_tracks(results_dir)
     rng = random.Random(f"{seed}:{label}")
     fb = [t for t in tracks if t["is_firebrand"] == "1"]
-    rej = [t for t in tracks if t["is_firebrand"] != "1" and t["n_det"] >= min_det]
-    pick = rng.sample(fb, min(n_firebrand, len(fb))) + rng.sample(rej, min(n_rejected, len(rej)))
+    pick = rng.sample(fb, min(n_firebrand, len(fb)))
+    # Rejected tracks, spread evenly over the rejection reasons, so the borderline
+    # ones (low contrast, little movement) are judged and not just obvious junk.
+    by_reason = defaultdict(list)
+    for t in tracks:
+        if t["is_firebrand"] != "1" and t["n_det"] >= min_det:
+            by_reason[t["reject_reason"]].append(t)
+    reasons = sorted(by_reason)
+    quota = {r: 0 for r in reasons}
+    left = n_rejected
+    while left > 0 and any(quota[r] < len(by_reason[r]) for r in reasons):
+        for r in reasons:
+            if left > 0 and quota[r] < len(by_reason[r]):
+                quota[r] += 1
+                left -= 1
+    for r in reasons:
+        pick += rng.sample(by_reason[r], quota[r])
 
     clips_dir = os.path.join(batch_dir, "clips")
     os.makedirs(clips_dir, exist_ok=True)
@@ -133,6 +151,7 @@ def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
                 # hidden from the reviewer; used only by score()
                 "pipeline_firebrand": t["is_firebrand"] == "1",
                 "reject_reason": t["reject_reason"],
+                "features": {k: t.get(k) for k in FEATURES},
                 "fps": fps, **info,
             })
     finally:
@@ -240,7 +259,8 @@ show();
 def write_page(batch_dir: str) -> str:
     man = json.load(open(os.path.join(batch_dir, "manifest.json")))
     # the reviewer's page carries no pipeline decision
-    public = {"clips": [{k: v for k, v in c.items() if k not in ("pipeline_firebrand", "reject_reason", "label", "track_id")}
+    public = {"clips": [{k: v for k, v in c.items()
+                         if k not in ("pipeline_firebrand", "reject_reason", "label", "track_id", "features")}
                         for c in man["clips"]]}
     html = _PAGE.replace("__MANIFEST__", json.dumps(public)).replace(
         "__BATCH__", json.dumps(os.path.basename(os.path.abspath(batch_dir))))

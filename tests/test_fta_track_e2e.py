@@ -70,7 +70,7 @@ def test_review_page_is_blind_and_scores(recording, tmp_path):
     n = make_batch(str(res), recording, str(batch), "branchlet/X/150kW/Twigs/1")
     assert n >= 1
     html = open(batch / "index.html").read()
-    for leak in ("pipeline_firebrand", "reject_reason", "is_firebrand"):
+    for leak in ("pipeline_firebrand", "reject_reason", "is_firebrand", "features", "n_evidence"):
         assert leak not in html
     man = json.load(open(batch / "manifest.json"))
     for c in man["clips"]:
@@ -82,3 +82,27 @@ def test_review_page_is_blind_and_scores(recording, tmp_path):
     out = score(str(batch), str(vpath))
     p = out["precision_of_counted_firebrands"]
     assert p["yes"] == sum(c["pipeline_firebrand"] for c in man["clips"]) and p["no"] == 0
+
+
+def test_retrack_reproduces_the_run(recording, tmp_path):
+    out = tmp_path / "res"
+    FTA_CLI.main(["run", recording, "--out", str(out), "--set", "m_per_px=0.002"])
+    before = open(out / "tracks.csv").read()
+    assert FTA_CLI.main(["retrack", str(out), "--set", "m_per_px=0.002"]) == 0
+    assert open(out / "tracks.csv").read() == before
+    s = json.load(open(out / "summary.json"))
+    assert s["retracked"] is True and s["firebrand_count"] == 1
+
+
+def test_retrack_applies_new_thresholds(recording, tmp_path):
+    out = tmp_path / "res"
+    FTA_CLI.main(["run", recording, "--out", str(out), "--set", "m_per_px=0.002"])
+    FTA_CLI.main(["retrack", str(out), "--set", "m_per_px=0.002", "--set", "min_contrast_c=5000"])
+    assert json.load(open(out / "summary.json"))["firebrand_count"] == 0
+
+
+def test_retrack_refuses_detection_parameters(recording, tmp_path):
+    out = tmp_path / "res"
+    FTA_CLI.main(["run", recording, "--out", str(out), "--set", "m_per_px=0.002"])
+    with pytest.raises(SystemExit):
+        FTA_CLI.main(["retrack", str(out), "--set", "hot_thresh_c=350"])

@@ -54,14 +54,16 @@ def detect_blobs(frame: np.ndarray, hot: np.ndarray, persistent: np.ndarray,
             cx = float(xs.mean()) + ex0
             cy = float(ys.mean()) + ey0
 
+        # Rounded to the precision detections.csv.gz stores, so that re-tracking from
+        # the saved file (FTA_CLI.py retrack) sees exactly what this run saw.
         out.append({
-            "cx": cx, "cy": cy,
+            "cx": round(cx, 2), "cy": round(cy, 2),
             "bbox": (x0, y0, w, h),
             "area": area,
-            "max_c": float(temps.max()),
-            "mean_c": float(temps.mean()),
-            "median_c": float(np.median(temps)),
-            "bg_c": bg,
-            "excess": float(np.sum(temps - bg)) if np.isfinite(bg) else float("nan"),
+            "max_c": round(float(temps.max()), 2),
+            "mean_c": round(float(temps.mean()), 2),
+            "median_c": round(float(np.median(temps)), 2),
+            "bg_c": round(bg, 2) if np.isfinite(bg) else bg,
+            "excess": round(float(np.sum(temps - bg)), 1) if np.isfinite(bg) else float("nan"),
         })
     return out

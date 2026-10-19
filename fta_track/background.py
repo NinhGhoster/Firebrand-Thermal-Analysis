@@ -25,8 +25,6 @@ class PersistenceWindow:
         self.hot: Deque[Tuple[int, np.ndarray]] = deque()
         k = 2 * int(dilate_px) + 1
         self.kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)) if dilate_px > 0 else None
-        # union of every persistent mask: the region firebrands are launched from
-        self.source = np.zeros(shape, dtype=bool)
 
     def push(self, idx: int, hot: np.ndarray) -> None:
         self.hot.append((idx, hot))
@@ -42,6 +40,4 @@ class PersistenceWindow:
         mask = (self.counts >= need).astype(np.uint8)
         if self.kernel is not None:
             mask = cv2.dilate(mask, self.kernel)
-        mask = mask.astype(bool)
-        self.source |= mask
-        return mask
+        return mask.astype(bool)
