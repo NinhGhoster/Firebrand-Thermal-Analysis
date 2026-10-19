@@ -8,6 +8,8 @@ temperature histories. The desktop app is FirebrandThermalAnalysis.py.
     python FTA_CLI.py run S9.nc --out results/S9 --label fibrous_bark/E_radiata/High/50kW/S9
     python FTA_CLI.py run S9.nc --out test --stop 3000 --qa --set persist_frac=0.2
     python FTA_CLI.py aggregate results/ --out firebrand_counts.csv
+    python FTA_CLI.py review-make results/S9 S9.nc --batch review/b1 --label fibrous_bark/E_radiata/High/50kW/S9
+    python FTA_CLI.py review-score review/b1 verdicts.json
 
 No GUI, no FLIR SDK: only numpy, scipy, opencv-python-headless and netCDF4.
 """
@@ -98,6 +100,24 @@ def cmd_aggregate(a) -> int:
     return 0
 
 
+def cmd_review_make(a) -> int:
+    from fta_track.review import make_batch
+    n = make_batch(a.results, a.nc, a.batch, a.label, n_firebrand=a.n_firebrand,
+                   n_rejected=a.n_rejected, seed=a.seed)
+    print(f"{n} clips from {a.label} -> {a.batch}/index.html")
+    return 0
+
+
+def cmd_review_score(a) -> int:
+    from fta_track.review import score
+    out = score(a.batch, a.verdicts)
+    p, r = out["precision_of_counted_firebrands"], out["real_firebrands_among_rejected"]
+    print(f"counted firebrands judged real: {p['yes']}/{p['yes'] + p['no']} (unsure {p['unsure']})")
+    print(f"rejected tracks judged real:    {r['yes']}/{r['yes'] + r['no']} (unsure {r['unsure']})")
+    print(f"-> {a.batch}/scores.json")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="FTA_CLI.py", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -117,6 +137,21 @@ def main(argv=None) -> int:
     g.add_argument("results", help="results root (searched recursively)")
     g.add_argument("--out", required=True, help="CSV to write")
     g.set_defaults(func=cmd_aggregate)
+
+    m = sub.add_parser("review-make", help="render a recording's tracks into a blind yes/no review batch")
+    m.add_argument("results", help="results directory of one recording (from `run`)")
+    m.add_argument("nc", help="the same recording's NetCDF, to render the clips")
+    m.add_argument("--batch", required=True, help="batch directory; clips are appended")
+    m.add_argument("--label", required=True, help="Level 2 path of the run")
+    m.add_argument("--n-firebrand", type=int, default=20, help="tracks counted as firebrands to sample")
+    m.add_argument("--n-rejected", type=int, default=15, help="rejected tracks to sample")
+    m.add_argument("--seed", type=int, default=0)
+    m.set_defaults(func=cmd_review_make)
+
+    sc = sub.add_parser("review-score", help="score a review batch against the pipeline's decisions")
+    sc.add_argument("batch", help="batch directory")
+    sc.add_argument("verdicts", help="verdicts.json downloaded from the review page")
+    sc.set_defaults(func=cmd_review_score)
 
     a = ap.parse_args(argv)
     return a.func(a)
