@@ -9,7 +9,9 @@ Deliberately avoids the defects found in firebrand-vision's tracker:
     can be re-associated (it is not frozen out after one miss);
   - tracks are confirmed only after `min_hits` detections, and only confirmed
     tracks are reported;
-  - any detection, however small, can start a track.
+  - any detection, however small, can start a track;
+  - a link is refused when the two areas differ by more than
+    `area_ratio_max`, so a gas puff and a speck are never chained together.
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ class _Track:
         self.Q = (q * q) * (_G @ _G.T)
         self.R = (r * r) * np.eye(2)
         self.points: List[tuple] = [(frame, det)]
+        self.area = float(det["area"])
         self.hits = 1
         self.misses = 0
         self.public_id: Optional[int] = None
@@ -47,6 +50,7 @@ class _Track:
         self.x = self.x + K @ (z - _H @ self.x)
         self.P = (np.eye(4) - K @ _H) @ self.P
         self.points.append((frame, det))
+        self.area = float(det["area"])
         self.hits += 1
         self.misses = 0
 
@@ -57,13 +61,15 @@ class _Track:
 
 class Tracker:
     def __init__(self, gate_new_px: float, gate_min_px: float, gate_speed_frac: float,
-                 q_px: float, r_px: float, max_misses: int, min_hits: int):
+                 q_px: float, r_px: float, max_misses: int, min_hits: int,
+                 area_ratio_max: float = float("inf")):
         self.gate_new = float(gate_new_px)
         self.gate_min = float(gate_min_px)
         self.gate_frac = float(gate_speed_frac)
         self.q, self.r = float(q_px), float(r_px)
         self.max_misses = int(max_misses)
         self.min_hits = int(min_hits)
+        self.area_ratio_max = float(area_ratio_max)
         self.live: List[_Track] = []
         self.finished: List[_Track] = []
         self._next_id = 1
@@ -83,7 +89,11 @@ class Tracker:
             obs = np.array([[d["cx"], d["cy"]] for d in dets])
             dist = np.linalg.norm(pred[:, None, :] - obs[None, :, :], axis=2)
             gates = np.array([self._gate(t) for t in self.live])
-            cost = np.where(dist <= gates[:, None], dist, _BIG)
+            ta = np.array([t.area for t in self.live])[:, None] + 2.0
+            da = np.array([d["area"] for d in dets], dtype=float)[None, :] + 2.0
+            ratio = np.maximum(ta, da) / np.minimum(ta, da)
+            ok = (dist <= gates[:, None]) & (ratio <= self.area_ratio_max)
+            cost = np.where(ok, dist, _BIG)
             rows, cols = linear_sum_assignment(cost)
             for ti, di in zip(rows, cols):
                 if cost[ti, di] >= _BIG:

@@ -42,6 +42,8 @@ def detect_stream(frames: Iterable[Tuple[int, np.ndarray]], shape: Tuple[int, in
     half = win // 2
     pw = PersistenceWindow(shape, win, p.persist_frac, p.persist_dilate_px)
     pending: deque = deque()
+    samples: deque = deque()        # (idx, frame) every `step` frames, for the temporal background
+    step = max(1, win // max(1, p.bg_samples))
     dets_by_frame: Dict[int, List[Dict]] = {}
     hot_total = np.zeros(shape, dtype=np.uint32)
     state = {"ignition": None, "n_post": 0, "n_dets": 0}
@@ -56,7 +58,10 @@ def detect_stream(frames: Iterable[Tuple[int, np.ndarray]], shape: Tuple[int, in
             return
         np.add(hot_total, hot, out=hot_total, casting="unsafe")
         state["n_post"] += 1
-        dets = detect_blobs(frame, hot, mask, p.min_area_px, p.max_area_px, p.ring_px)
+        while samples and samples[0][0] < c - half:
+            samples.popleft()
+        dets = detect_blobs(frame, hot, mask, p.min_area_px, p.max_area_px, p.ring_px,
+                            [f for _, f in samples])
         if dets:
             for d in dets:
                 d["frame"] = c
@@ -74,6 +79,8 @@ def detect_stream(frames: Iterable[Tuple[int, np.ndarray]], shape: Tuple[int, in
                 f"frame {idx}, t = {idx / fps:.2f} s")
         pw.push(idx, hot)
         pending.append((idx, frame, hot))
+        if idx % step == 0:
+            samples.append((idx, np.array(frame, copy=True)))  # a copy: a view would pin its whole chunk
         while pending and pending[0][0] + half <= idx:
             process(*pending.popleft())
         n_seen += 1
@@ -95,7 +102,7 @@ def track_classify(dets_by_frame: Dict[int, List[Dict]], span: Tuple[int, int], 
     """Track every frame in `span` (inclusive, empty frames too: misses count) and classify."""
     gate_new = min(200.0, p.v_max_mps / (s * fps))
     tracker = Tracker(gate_new, p.gate_min_px, p.gate_speed_frac, p.kalman_q_px, p.kalman_r_px,
-                      p.max_miss_frames(fps), p.min_hits)
+                      p.max_miss_frames(fps), p.min_hits, p.track_area_ratio_max)
     for dets in dets_by_frame.values():
         for d in dets:
             d.pop("track_id", None)

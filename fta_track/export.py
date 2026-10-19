@@ -28,15 +28,15 @@ TRACK_COLS = [
     "launch_x_px", "launch_y_px", "launch_x_m", "launch_y_m", "end_x_m", "end_y_m",
     "displacement_m", "path_length_m", "straightness",
     "launch_speed_mps", "launch_dir_deg", "mean_speed_mps", "max_speed_mps", "vert_accel_mps2",
-    "peak_c", "mean_c", "cooling_c_per_s", "mean_area_px",
+    "peak_c", "mean_c", "cooling_c_per_s", "mean_area_px", "area_jump",
 ]
 POINT_COLS = ["track_id", "is_firebrand", "frame", "time_s", "x_px", "y_px", "x_m", "y_m",
               "vx_mps", "vy_mps", "speed_mps", "max_c", "mean_c", "contrast_c", "cold", "area_px"]
 DET_COLS = ["frame", "time_s", "track_id", "x_px", "y_px", "bbox_x", "bbox_y", "bbox_w", "bbox_h",
-            "area_px", "max_c", "mean_c", "median_c", "bg_c", "excess_c_px"]
+            "area_px", "max_c", "mean_c", "median_c", "bg_c", "bg_t_c", "excess_c_px"]
 # Parameters used by the detection pass; changing any of them needs a new `run`.
 DETECTION_PARAMS = ("hot_thresh_c", "ignition_min_px", "min_area_px", "max_area_px", "ring_px",
-                    "persist_window_s", "persist_frac", "persist_dilate_px")
+                    "bg_samples", "persist_window_s", "persist_frac", "persist_dilate_px")
 
 
 def _fmt(v, nd=4):
@@ -92,7 +92,7 @@ def _write_tables(out_dir: str, res: Dict, fps: float, width: int, height: int, 
             w.writerow([d["frame"], _fmt(d["frame"] / fps), d.get("track_id") or "",
                         _fmt(d["cx"], 2), _fmt(d["cy"], 2), x, y, bw, bh, d["area"],
                         _fmt(d["max_c"], 2), _fmt(d["mean_c"], 2), _fmt(d["median_c"], 2),
-                        _fmt(d["bg_c"], 2), _fmt(d["excess"], 1)])
+                        _fmt(d["bg_c"], 2), _fmt(d.get("bg_t_c"), 2), _fmt(d["excess"], 1)])
 
     fb_ids = {t["track_id"] for t in tracks if t["is_firebrand"]}
     images, anns, seen = [], [], {}
@@ -194,6 +194,7 @@ def retrack(out_dir: str, p) -> Dict:
                 "area": int(r["area_px"]), "max_c": float(r["max_c"]), "mean_c": float(r["mean_c"]),
                 "median_c": float(r["median_c"]),
                 "bg_c": float(r["bg_c"]) if r["bg_c"] else nan,
+                "bg_t_c": float(r["bg_t_c"]) if r.get("bg_t_c") else nan,
                 "excess": float(r["excess_c_px"]) if r["excess_c_px"] else nan,
             })
     hot_frac = np.load(os.path.join(out_dir, "hot_fraction.npz"))["hot_frac"].astype(np.float32)

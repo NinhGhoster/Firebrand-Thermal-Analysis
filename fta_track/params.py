@@ -19,6 +19,10 @@ class Params:
     min_area_px: int = 1          # a 1-px blob may start a track; tracking filters noise
     max_area_px: int = 2000       # ~52 cm^2 at 1.62 mm/px: large bark pieces must not be lost
     ring_px: int = 3              # width of the local-background ring around a blob
+    # Temporal background: what the blob's own pixels usually read, as the median
+    # of this many frames sampled across the persistence window. Unlike the ring,
+    # it is not dragged down by cold air beside a hot rail or panel edge.
+    bg_samples: int = 15
 
     # --- persistent-hot mask (burning sample, burner, flame) --------------
     # A pixel is "persistent" if it is >= hot_thresh_c in at least persist_frac of
@@ -36,6 +40,10 @@ class Params:
     kalman_r_px: float = 1.0      # measurement noise, px
     max_miss_s: float = 0.2       # a confirmed track coasts on its prediction this long
     min_hits: int = 3             # detections needed before a track is confirmed
+    # A solid firebrand does not change size a hundredfold between frames; gas
+    # puffs and specks do. Links whose areas differ by more than this are refused
+    # (ratio of area + 2 px, so 1-4 px specks are not over-penalised).
+    track_area_ratio_max: float = 4.0
 
     # --- firebrand classification -----------------------------------------
     # The rig (burner tray, frame, panels) and the flame sit at or near the hot
@@ -45,7 +53,7 @@ class Params:
     min_track_dets: int = 4
     env_frac: float = 0.05        # long-term hot fraction that marks rig and flame
     env_dilate_px: int = 5
-    min_contrast_c: float = 80.0  # blob peak minus the median of its surrounding ring
+    min_contrast_c: float = 80.0  # blob peak minus its temporal background (ring if unavailable)
     min_cold_dets: int = 2        # detections in cold space at >= min_contrast_c
     min_disp_m: float = 0.05      # net displacement
     min_straightness: float = 0.5 # net / path length, applied only with >= 4 motion vectors

@@ -6,19 +6,24 @@ threshold, 8-connected components, statistics on the component mask), with:
   - a temperature-weighted centroid (sub-pixel) for tracking,
   - a local background from a ring around the blob, and the integrated excess
     temperature sum(T - background), which stays meaningful for embers smaller
-    than a pixel whose peak reads low.
+    than a pixel whose peak reads low,
+  - a temporal background: the median, over frames sampled across a few
+    seconds, of what the blob's own pixels read. A flicker on a rail that sits
+    near 290 C has a temporal background near 290; an ember crossing dark air
+    has one near the air temperature.
 """
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Optional, Sequence
 
 import cv2
 import numpy as np
 
 
 def detect_blobs(frame: np.ndarray, hot: np.ndarray, persistent: np.ndarray,
-                 min_area: int, max_area: int, ring_px: int) -> List[Dict]:
+                 min_area: int, max_area: int, ring_px: int,
+                 samples: Optional[Sequence[np.ndarray]] = None) -> List[Dict]:
     cand = (hot & ~persistent).astype(np.uint8)
     n, labels, stats, _ = cv2.connectedComponentsWithStats(cand, connectivity=8)
     H, W = frame.shape
@@ -44,6 +49,12 @@ def detect_blobs(frame: np.ndarray, hot: np.ndarray, persistent: np.ndarray,
         ring = ~hot[ey0:ey1, ex0:ex1] & ~blob
         bg = float(np.median(sub[ring])) if ring.any() else float("nan")
 
+        bg_t = float("nan")
+        if samples:
+            own = labels[y0:y0 + h, x0:x0 + w] == lid
+            stack = np.stack([sm[y0:y0 + h, x0:x0 + w] for sm in samples])
+            bg_t = float(np.median(np.median(stack, axis=0)[own]))
+
         ys, xs = np.nonzero(blob)
         wts = temps - bg if np.isfinite(bg) else np.ones_like(temps)
         wts = np.clip(wts, 0.0, None)
@@ -64,6 +75,7 @@ def detect_blobs(frame: np.ndarray, hot: np.ndarray, persistent: np.ndarray,
             "mean_c": round(float(temps.mean()), 2),
             "median_c": round(float(np.median(temps)), 2),
             "bg_c": round(bg, 2) if np.isfinite(bg) else bg,
+            "bg_t_c": round(bg_t, 2) if np.isfinite(bg_t) else bg_t,
             "excess": round(float(np.sum(temps - bg)), 1) if np.isfinite(bg) else float("nan"),
         })
     return out

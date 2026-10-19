@@ -10,7 +10,8 @@ there it is clearly hotter than the air around it.
 A confirmed track is counted as a firebrand when it
   1. has at least `min_track_dets` detections,
   2. has at least `min_cold_dets` detections in cold space whose contrast
-     (blob peak minus the median of its surrounding ring) is >= `min_contrast_c`,
+     (blob peak minus what those pixels usually read: the temporal background,
+     or the surrounding ring for older outputs without it) is >= `min_contrast_c`,
   3. moves a net `min_disp_m`, and
   4. if it has >= 4 motion vectors, has straightness (net / path length) of at
      least `min_straightness`. Fewer vectors are not scored: a straightness from
@@ -51,14 +52,17 @@ def track_features(points: List[tuple], fps: float, s: float, cold: np.ndarray, 
     tmax = np.array([d["max_c"] for _, d in points])
     tmean = np.array([d["mean_c"] for _, d in points])
     area = np.array([d["area"] for _, d in points], dtype=float)
-    bg = np.array([d["bg_c"] for _, d in points], dtype=float)
-    contrast = tmax - bg
+    bg_t = np.array([d.get("bg_t_c", np.nan) for _, d in points], dtype=float)
+    bg_r = np.array([d["bg_c"] for _, d in points], dtype=float)
+    contrast = tmax - np.where(np.isfinite(bg_t), bg_t, bg_r)
     xi = np.clip(np.round(xs).astype(int), 0, W - 1)
     yi = np.clip(np.round(ys).astype(int), 0, H - 1)
     in_cold = cold[yi, xi]
     evidence = in_cold & (np.nan_to_num(contrast, nan=-1.0) >= p.min_contrast_c)
 
     n = len(points)
+    # typical frame-to-frame size change: a solid firebrand stays near 0, gas puffs do not
+    area_jump = float(np.median(np.abs(np.diff(np.log(area + 2.0))))) if n >= 2 else float("nan")
     steps = np.hypot(np.diff(X), np.diff(Y))
     path = float(steps.sum())
     disp = float(math.hypot(X[-1] - X[0], Y[-1] - Y[0]))
@@ -89,6 +93,7 @@ def track_features(points: List[tuple], fps: float, s: float, cold: np.ndarray, 
         "peak_c": float(tmax.max()), "mean_c": float(tmean.mean()),
         "cooling_c_per_s": cool,
         "mean_area_px": float(area.mean()),
+        "area_jump": area_jump,
         # per-point series, written to track_points.csv.gz
         "_series": {"frame": frames.astype(int), "t": t, "x_px": xs, "y_px": ys, "X": X, "Y": Y,
                     "vx": vx, "vy": vy, "speed": speed, "max_c": tmax, "mean_c": tmean, "area": area,

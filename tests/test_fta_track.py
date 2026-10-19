@@ -129,6 +129,20 @@ class TestFirebrand:
         assert movers and all(t["reject_reason"] == "low_contrast" for t in movers)
 
 
+    def test_flicker_on_a_rail_edge_is_rejected(self):
+        # A rail at 298 C with cold air beside it. A 310 C flicker running along its
+        # edge looks 290 C hot against the ring (half of it is cold air) but only
+        # 12 C above what those pixels usually read.
+        def frames():
+            for i, f in _scene(150, sample_from=10, embers=[(40, 20, 100, 3.0, 0.0, 310.0, 0.0, 2)]):
+                f[100:104, :] = np.maximum(f[100:104, :], 298.0)
+                yield i, f
+        res = _run(frames())
+        movers = [t for t in res["tracks"] if t["displacement_m"] > 0.05]
+        assert movers and all(t["reject_reason"] == "low_contrast" for t in movers)
+        assert all(t["max_contrast_c"] < 40 for t in movers)
+
+
 class TestTracker:
     def test_crossing_embers_keep_their_ids(self):
         # paths cross at x ~ 160, passing 3 px apart vertically
@@ -141,6 +155,22 @@ class TestTracker:
             vx = t["_series"]["vx"]
             assert (np.all(vx[np.isfinite(vx)] > 0) or np.all(vx[np.isfinite(vx)] < 0)), \
                 "a track changed direction: IDs swapped at the crossing"
+
+    def test_a_speck_and_a_puff_are_not_linked(self):
+        # a 2x2 ember moves right; at frame 25 it vanishes and a 25x25 hot patch
+        # appears exactly where it was heading
+        def frames():
+            for i, f in _scene(45, embers=[(5, 20, 120, 5.0, 0.0, 800.0, 0.0, 2)]):
+                if i >= 25:
+                    f[:, :] = np.where(f > 300, 20.0, f)
+                    x = int(20 + 5.0 * (i - 5))
+                    if i < 30:
+                        f[108:133, x - 12:x + 13] = 450.0
+                yield i, f
+        res = _run(frames(), ignition_min_px=1)
+        for t in res["tracks"]:
+            areas = t["_series"]["area"]
+            assert areas.max() / areas.min() < 10, "a speck and a puff were chained into one track"
 
     def test_short_gap_is_bridged(self):
         # an ember invisible for 3 frames mid-flight stays one track
