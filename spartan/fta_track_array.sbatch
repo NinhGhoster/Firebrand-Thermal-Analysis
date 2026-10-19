@@ -29,7 +29,9 @@
 set -euo pipefail
 
 W=/data/gpfs/projects/punim1990/haninhn/firebrand_tracking
-LIST=${LIST:-$W/worklist.tsv}            # <NetCDF path under SRC> TAB <Level 2 run path>
+# <NetCDF path under SRC> TAB <released Level 2 run path>; build it with
+#   python $W/FTA/spartan/make_worklist.py ~/restructure/reencode_all.tsv > $W/worklist.tsv
+LIST=${LIST:-$W/worklist.tsv}
 SRC=Mediaflux:/Volumes/proj-6600_3d_firebrand-1128.4.1067/level1.1/thermal_compressed_threshold299
 PY=$W/venv/bin/python
 CLI=$W/FTA/FTA_CLI.py
