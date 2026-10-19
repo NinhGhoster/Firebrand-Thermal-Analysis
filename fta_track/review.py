@@ -132,7 +132,7 @@ def _render(var, track: Dict, n_frames: int, out_png: str, out_ctx: str) -> Dict
 
 
 def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
-               n_firebrand: int = 20, n_rejected: int = 15, min_det: int = 4, seed: int = 0) -> int:
+               n_firebrand: int = 15, n_rejected: int = 12, min_det: int = 3, seed: int = 0) -> int:
     import netCDF4 as nc
 
     tracks = _read_tracks(results_dir)

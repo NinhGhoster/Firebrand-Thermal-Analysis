@@ -179,8 +179,9 @@ def main(argv=None) -> int:
     m.add_argument("nc", help="the same recording's NetCDF, to render the clips")
     m.add_argument("--batch", required=True, help="batch directory; clips are appended")
     m.add_argument("--label", required=True, help="Level 2 path of the run")
-    m.add_argument("--n-firebrand", type=int, default=20, help="tracks counted as firebrands to sample")
-    m.add_argument("--n-rejected", type=int, default=15, help="rejected tracks to sample")
+    m.add_argument("--n-firebrand", type=int, default=15, help="tracks counted as firebrands to sample")
+    m.add_argument("--n-rejected", type=int, default=12,
+                   help="rejected tracks to sample, spread over rejection reasons (3+ detections, so too_short is included)")
     m.add_argument("--seed", type=int, default=0)
     m.set_defaults(func=cmd_review_make)
 
