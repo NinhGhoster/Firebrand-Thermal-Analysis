@@ -11,6 +11,7 @@ dependencies = [
     "numpy<2",
     "opencv-python-headless>=4.10",
     "pillow>=10.0",
+    "scipy>=1.13",
     "tkinterdnd2-universal>=0.1",
 ]
 
@@ -35,6 +36,8 @@ package = false
 # this project actually builds for.
 environments = [
     "sys_platform == 'darwin'",
-    "sys_platform == 'linux'",
+    # x86_64 only: the FLIR SDK ships no Linux ARM wheel, and CI builds the
+    # AppImage on x86_64 (ubuntu-latest, appimagetool-x86_64).
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
     "sys_platform == 'win32' and platform_machine == 'AMD64'",
 ]
