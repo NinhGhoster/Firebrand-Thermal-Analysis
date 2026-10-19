@@ -131,6 +131,13 @@ def cmd_review_make(a) -> int:
     return 0
 
 
+def cmd_review_merge(a) -> int:
+    from fta_track.review import merge_batches
+    n = merge_batches(a.out, a.parts)
+    print(f"{n} clips from {len(a.parts)} batch(es) -> {a.out}/index.html")
+    return 0
+
+
 def cmd_review_score(a) -> int:
     from fta_track.review import score
     out = score(a.batch, a.verdicts)
@@ -176,6 +183,11 @@ def main(argv=None) -> int:
     m.add_argument("--n-rejected", type=int, default=15, help="rejected tracks to sample")
     m.add_argument("--seed", type=int, default=0)
     m.set_defaults(func=cmd_review_make)
+
+    mg = sub.add_parser("review-merge", help="combine per-recording review batches into one page")
+    mg.add_argument("out", help="merged batch directory")
+    mg.add_argument("parts", nargs="+", help="batch directories to merge")
+    mg.set_defaults(func=cmd_review_merge)
 
     sc = sub.add_parser("review-score", help="score a review batch against the pipeline's decisions")
     sc.add_argument("batch", help="batch directory")

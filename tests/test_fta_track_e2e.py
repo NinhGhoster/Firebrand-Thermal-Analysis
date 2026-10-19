@@ -70,12 +70,13 @@ def test_review_page_is_blind_and_scores(recording, tmp_path):
     n = make_batch(str(res), recording, str(batch), "branchlet/X/150kW/Twigs/1")
     assert n >= 1
     html = open(batch / "index.html").read()
-    for leak in ("pipeline_firebrand", "reject_reason", "is_firebrand", "features", "n_evidence"):
+    for leak in ("pipeline_firebrand", "reject_reason", "is_firebrand", "features", "n_evidence", "point_data"):
         assert leak not in html
     man = json.load(open(batch / "manifest.json"))
     for c in man["clips"]:
         assert os.path.exists(batch / "clips" / (c["id"] + ".png"))
         assert any(m is not None for m in c["marks"])
+        assert len(c["point_data"]) == c["features"]["n_det"]
     V = {c["id"]: ("y" if c["pipeline_firebrand"] else "n") for c in man["clips"]}
     vpath = tmp_path / "verdicts.json"
     json.dump({"batch": "batch", "verdicts": V}, open(vpath, "w"))
@@ -106,3 +107,15 @@ def test_retrack_refuses_detection_parameters(recording, tmp_path):
     FTA_CLI.main(["run", recording, "--out", str(out), "--set", "m_per_px=0.002"])
     with pytest.raises(SystemExit):
         FTA_CLI.main(["retrack", str(out), "--set", "hot_thresh_c=350"])
+
+
+def test_review_merge_combines_batches(recording, tmp_path):
+    res = tmp_path / "res"
+    FTA_CLI.main(["run", recording, "--out", str(res), "--set", "m_per_px=0.002"])
+    a, b = tmp_path / "a", tmp_path / "b"
+    na = make_batch(str(res), recording, str(a), "branchlet/X/150kW/Twigs/1")
+    nb = make_batch(str(res), recording, str(b), "branchlet/Y/150kW/Twigs/2")
+    assert FTA_CLI.main(["review-merge", str(tmp_path / "all"), str(a), str(b)]) == 0
+    man = json.load(open(tmp_path / "all" / "manifest.json"))
+    assert len(man["clips"]) == na + nb
+    assert all(os.path.exists(tmp_path / "all" / "clips" / (c["id"] + ".png")) for c in man["clips"])

@@ -41,14 +41,41 @@ def _read_tracks(results_dir: str) -> List[Dict]:
     with open(os.path.join(results_dir, "tracks.csv"), newline="") as fh:
         rows = list(csv.DictReader(fh))
     pts = defaultdict(list)
+    extra = defaultdict(list)
     with gzip.open(os.path.join(results_dir, "track_points.csv.gz"), "rt", newline="") as fh:
         for r in csv.DictReader(fh):
-            pts[int(r["track_id"])].append((int(r["frame"]), float(r["x_px"]), float(r["y_px"])))
+            tid = int(r["track_id"])
+            pts[tid].append((int(r["frame"]), float(r["x_px"]), float(r["y_px"])))
+            extra[tid].append((float(r["max_c"]), float(r["contrast_c"]) if r["contrast_c"] else None))
+    hf_path = os.path.join(results_dir, "hot_fraction.npz")
+    hot = np.load(hf_path)["hot_frac"].astype(np.float32) if os.path.exists(hf_path) else None
     for r in rows:
-        r["track_id"] = int(r["track_id"])
+        tid = int(r["track_id"])
+        r["track_id"] = tid
         r["n_det"] = int(r["n_det"])
-        r["points"] = sorted(pts[r["track_id"]])
+        order = sorted(range(len(pts[tid])), key=lambda k: pts[tid][k][0])
+        r["points"] = [pts[tid][k] for k in order]
+        # everything needed to re-decide this track under any threshold, without the results dir
+        r["point_data"] = []
+        for k in order:
+            f, x, y = pts[tid][k]
+            mx, con = extra[tid][k]
+            hf = None
+            if hot is not None:
+                hf = round(float(hot[min(hot.shape[0] - 1, max(0, int(round(y)))),
+                                     min(hot.shape[1] - 1, max(0, int(round(x))))]), 4)
+            r["point_data"].append([f, round(x, 2), round(y, 2), mx, con, hf])
     return rows
+
+
+def _num(v):
+    if v in (None, ""):
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return v
+    return int(f) if f.is_integer() and "." not in str(v) else f
 
 
 def _colour(frame: np.ndarray) -> np.ndarray:
@@ -151,7 +178,8 @@ def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
                 # hidden from the reviewer; used only by score()
                 "pipeline_firebrand": t["is_firebrand"] == "1",
                 "reject_reason": t["reject_reason"],
-                "features": {k: t.get(k) for k in FEATURES},
+                "features": {k: _num(t.get(k)) for k in FEATURES},
+                "point_data": t["point_data"],   # [frame, x, y, max_c, contrast_c, hot_frac]
                 "fps": fps, **info,
             })
     finally:
@@ -256,11 +284,34 @@ show();
 """
 
 
+def merge_batches(out_dir: str, parts: List[str]) -> int:
+    """Combine per-recording batches (built in parallel) into one review page."""
+    import shutil
+
+    os.makedirs(os.path.join(out_dir, "clips"), exist_ok=True)
+    clips, seen = [], set()
+    for part in parts:
+        man = json.load(open(os.path.join(part, "manifest.json")))
+        for c in man["clips"]:
+            if c["id"] in seen:
+                continue
+            seen.add(c["id"])
+            for suffix in (".png", "_ctx.jpg"):
+                shutil.copy2(os.path.join(part, "clips", c["id"] + suffix),
+                             os.path.join(out_dir, "clips", c["id"] + suffix))
+            clips.append(c)
+    with open(os.path.join(out_dir, "manifest.json"), "w") as fh:
+        json.dump({"clips": clips}, fh)
+    write_page(out_dir)
+    return len(clips)
+
+
 def write_page(batch_dir: str) -> str:
     man = json.load(open(os.path.join(batch_dir, "manifest.json")))
     # the reviewer's page carries no pipeline decision
     public = {"clips": [{k: v for k, v in c.items()
-                         if k not in ("pipeline_firebrand", "reject_reason", "label", "track_id", "features")}
+                         if k not in ("pipeline_firebrand", "reject_reason", "label", "track_id", "features",
+                                      "point_data")}
                         for c in man["clips"]]}
     html = _PAGE.replace("__MANIFEST__", json.dumps(public)).replace(
         "__BATCH__", json.dumps(os.path.basename(os.path.abspath(batch_dir))))
