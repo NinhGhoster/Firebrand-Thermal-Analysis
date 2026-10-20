@@ -8,16 +8,20 @@ seen in *cold space* (where the long-term hot fraction is below `env_frac`), and
 there it is clearly hotter than the air around it.
 
 A confirmed track is counted as a firebrand when it
-  1. has at least `min_track_dets` detections,
-  2. has at least `min_cold_dets` detections in cold space whose contrast
+  1. has detections spanning at least `min_track_span_s` (converted to a number
+     of detections for the recording's frame rate, at least 3),
+  2. has enough detections (`min_cold_s`, converted per frame rate) in cold space whose contrast
      (blob peak minus what those pixels usually read: the temporal background,
      or the surrounding ring for older outputs without it) is >= `min_contrast_c`
      and whose edge gradient is >= `min_edge_grad` (a solid object's hard edge,
      not a parcel of hot gas fading into the plume),
   3. moves a net `min_disp_m`, and
-  4. if it has >= 4 motion vectors, has straightness (net / path length) of at
-     least `min_straightness`. Fewer vectors are not scored: a straightness from
-     two or three steps says nothing about the motion.
+  4. once it has motion over `straight_min_s` (at least 3 vectors), is locally
+     straight: the median, over every window of that duration, of net / path
+     length is at least `min_straightness`. Local, because a lofted firebrand
+     flies an arc (it rises and falls back, so its whole-track net/path can be
+     0.3) while being nearly straight over any 0.1-0.2 s; a track hopping between
+     flicker blobs zigzags at the frame scale. Shorter tracks are not scored.
 The first failing test is recorded as `reject_reason`.
 """
 
@@ -30,26 +34,53 @@ import cv2
 import numpy as np
 
 from .params import Params
-from .units import lsq_slope, to_metres, velocity_series, vertical_acceleration
+from .units import launch_velocity, lsq_slope, to_metres, velocity_series, vertical_acceleration
 
 
-def cold_space(hot_frac: np.ndarray, p: Params) -> np.ndarray:
+def env_threshold(n_post: int, fps: float, p: Params) -> float:
+    """Hot fraction at and above which a pixel is rig or flame, not cold space.
+
+    env_frac of the post-ignition frames, but never fewer hot frames than
+    env_min_s worth: in a 316-frame recording 5 % is only 16 frames, so a few
+    firebrands crossing the same pixels would otherwise turn their own flight
+    path into "rig" and reject themselves.
+    """
+    if n_post <= 0:
+        return p.env_frac
+    return max(p.env_frac, p.env_min_s * fps / n_post)
+
+
+def cold_space(hot_frac: np.ndarray, n_post: int, fps: float, p: Params) -> np.ndarray:
     """True where a firebrand can be told apart from the rig and the flame."""
-    env = (hot_frac >= p.env_frac).astype(np.uint8)
+    env = (hot_frac >= env_threshold(n_post, fps, p)).astype(np.uint8)
     if p.env_dilate_px > 0:
         k = 2 * p.env_dilate_px + 1
         env = cv2.dilate(env, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
     return ~env.astype(bool)
 
 
-def track_features(points: List[tuple], fps: float, s: float, cold: np.ndarray, p: Params) -> Dict:
+def _local_straightness(X: np.ndarray, Y: np.ndarray, vectors: int):
+    """Median over sliding windows of `vectors` steps of net / path; None if too short."""
+    n = len(X)
+    if n - 1 < vectors:
+        return None
+    vals = []
+    for a in range(0, n - vectors):
+        b = a + vectors
+        path = float(np.hypot(np.diff(X[a:b + 1]), np.diff(Y[a:b + 1])).sum())
+        if path > 0:
+            vals.append(math.hypot(X[b] - X[a], Y[b] - Y[a]) / path)
+    return float(np.median(vals)) if vals else None
+
+
+def track_features(points: List[tuple], fps: float, s: float, cold: np.ndarray, p: Params, dv: Dict) -> Dict:
     H, W = cold.shape
     frames = np.array([f for f, _ in points], dtype=float)
     t = frames / fps
     xs = np.array([d["cx"] for _, d in points])
     ys = np.array([d["cy"] for _, d in points])
     X, Y = to_metres(xs, ys, s, H)
-    vx, vy = velocity_series(t, X, Y, p.lsq_window)
+    vx, vy = velocity_series(t, X, Y, dv["lsq_points"])
     speed = np.hypot(vx, vy)
     tmax = np.array([d["max_c"] for _, d in points])
     tmean = np.array([d["mean_c"] for _, d in points])
@@ -70,10 +101,9 @@ def track_features(points: List[tuple], fps: float, s: float, cold: np.ndarray, 
     steps = np.hypot(np.diff(X), np.diff(Y))
     path = float(steps.sum())
     disp = float(math.hypot(X[-1] - X[0], Y[-1] - Y[0]))
-    straight = disp / path if (n - 1) >= 4 and path > 0 else None
+    straight = _local_straightness(X, Y, dv["straight_min_vectors"])
 
-    k = min(p.lsq_window, n)
-    lvx, lvy = lsq_slope(t[:k], X[:k]), lsq_slope(t[:k], Y[:k])
+    lvx, lvy, lt, lmethod = launch_velocity(t, X, Y, dv["lsq_points"])
     cool = lsq_slope(t, tmax) if n >= 4 and t[-1] > t[0] else float("nan")
     finite = np.isfinite(speed)
     return {
@@ -91,6 +121,7 @@ def track_features(points: List[tuple], fps: float, s: float, cold: np.ndarray, 
         "straightness": straight,
         "launch_speed_mps": float(math.hypot(lvx, lvy)) if np.isfinite(lvx) else float("nan"),
         "launch_dir_deg": float(math.degrees(math.atan2(lvy, lvx))) if np.isfinite(lvx) else float("nan"),
+        "launch_t_s": lt, "launch_fit": lmethod,
         "mean_speed_mps": float(np.nanmean(speed)) if finite.any() else float("nan"),
         "max_speed_mps": float(np.nanmax(speed)) if finite.any() else float("nan"),
         "vert_accel_mps2": vertical_acceleration(t, Y),
@@ -106,13 +137,13 @@ def track_features(points: List[tuple], fps: float, s: float, cold: np.ndarray, 
     }
 
 
-def classify(f: Dict, p: Params) -> str:
+def classify(f: Dict, p: Params, dv: Dict) -> str:
     """Return '' for a firebrand, otherwise the first failing test."""
-    if f["n_det"] < p.min_track_dets:
+    if f["n_det"] < dv["min_track_dets"]:
         return "too_short"
-    if f["n_cold"] < p.min_cold_dets:
+    if f["n_cold"] < dv["min_cold_dets"]:
         return "not_in_cold_space"
-    if f["n_evidence"] < p.min_cold_dets:
+    if f["n_evidence"] < dv["min_cold_dets"]:
         return "low_contrast"
     if f["displacement_m"] < p.min_disp_m:
         return "too_little_displacement"

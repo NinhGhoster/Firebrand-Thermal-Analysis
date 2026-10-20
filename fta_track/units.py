@@ -58,6 +58,27 @@ def velocity_series(t: np.ndarray, X: np.ndarray, Y: np.ndarray, window: int) ->
     return vx, vy
 
 
+def launch_velocity(t: np.ndarray, X: np.ndarray, Y: np.ndarray, window: int):
+    """Velocity at the first detection, and the time it refers to.
+
+    With >= 5 points, the derivative at t[0] of a quadratic fit over the first
+    max(5, window + 1) points: the speed *at* launch, not the mean over the first
+    few frames (which lags by about window/2 frames and so depends on frame rate
+    for a firebrand that is slowing down or speeding up). With fewer points, the
+    least-squares slope, which refers to the mean time of those points.
+    Returns (vx, vy, t_ref, method).
+    """
+    n = len(t)
+    m = min(n, max(5, window + 1))
+    if m >= 5:
+        tt = np.asarray(t[:m], dtype=float) - float(t[0])
+        cx = np.polyfit(tt, np.asarray(X[:m], dtype=float), 2)
+        cy = np.polyfit(tt, np.asarray(Y[:m], dtype=float), 2)
+        return float(cx[1]), float(cy[1]), float(t[0]), "quadratic"
+    return (lsq_slope(t[:m], X[:m]), lsq_slope(t[:m], Y[:m]),
+            float(np.mean(t[:m])) if m else float("nan"), "linear")
+
+
 def vertical_acceleration(t: np.ndarray, Y: np.ndarray) -> Optional[float]:
     """Second derivative of a quadratic fit to height against time (needs >= 5 points)."""
     if len(t) < 5:

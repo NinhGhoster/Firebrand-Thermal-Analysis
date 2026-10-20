@@ -46,7 +46,7 @@ def detect_stream(frames: Iterable[Tuple[int, np.ndarray]], shape: Tuple[int, in
     step = max(1, win // max(1, p.bg_samples))
     dets_by_frame: Dict[int, List[Dict]] = {}
     hot_total = np.zeros(shape, dtype=np.uint32)
-    state = {"ignition": None, "n_post": 0, "n_dets": 0}
+    state = {"ignition": None, "n_post": 0, "n_dets": 0, "max_samples": 0}
     first = last = None
     n_seen = 0
     t0 = time.time()
@@ -81,6 +81,13 @@ def detect_stream(frames: Iterable[Tuple[int, np.ndarray]], shape: Tuple[int, in
         pending.append((idx, frame, hot))
         if idx % step == 0:
             samples.append((idx, np.array(frame, copy=True)))  # a copy: a view would pin its whole chunk
+        # Trim here, not only in process(): before ignition process() returns early,
+        # and the samples would otherwise pile up for the whole pre-ignition period.
+        # Every frame still to be processed is >= idx - half and needs samples from
+        # >= its own index - half, so anything older than idx - 2*half is never used.
+        while samples and samples[0][0] < idx - 2 * half:
+            samples.popleft()
+        state["max_samples"] = max(state["max_samples"], len(samples))
         while pending and pending[0][0] + half <= idx:
             process(*pending.popleft())
         n_seen += 1
@@ -93,33 +100,37 @@ def detect_stream(frames: Iterable[Tuple[int, np.ndarray]], shape: Tuple[int, in
     # re-track from the saved file reproduces this run exactly
     hot_frac = (hot_total / max(1, state["n_post"])).astype(np.float16).astype(np.float32)
     return {"dets_by_frame": dets_by_frame, "ignition_frame": state["ignition"], "hot_frac": hot_frac,
-            "first_frame": first, "last_frame": last, "frames_processed": n_seen,
-            "window_frames": win, "seconds": time.time() - t0}
+            "n_post": state["n_post"], "first_frame": first, "last_frame": last, "frames_processed": n_seen,
+            "window_frames": win, "max_samples_held": state["max_samples"], "seconds": time.time() - t0}
 
 
 def track_classify(dets_by_frame: Dict[int, List[Dict]], span: Tuple[int, int], fps: float, s: float,
-                   hot_frac: np.ndarray, p: Params) -> Tuple[List[Dict], float]:
-    """Track every frame in `span` (inclusive, empty frames too: misses count) and classify."""
-    gate_new = min(200.0, p.v_max_mps / (s * fps))
-    tracker = Tracker(gate_new, p.gate_min_px, p.gate_speed_frac, p.kalman_q_px, p.kalman_r_px,
-                      p.max_miss_frames(fps), p.min_hits, p.track_area_ratio_max)
+                   hot_frac: np.ndarray, n_post: int, p: Params) -> Tuple[List[Dict], Dict]:
+    """Track every frame in `span` (inclusive, empty frames too: misses count) and classify.
+
+    Returns the track rows and the per-recording values the thresholds turned into.
+    """
+    dv = p.derived(fps, s)
+    tracker = Tracker(dv["gate_new_px"], dv["q_px"], p.kalman_r_px, p.gate_chi2, p.gate_floor_px,
+                      dv["max_miss_frames"], dv["min_hits"], p.track_area_ratio_max)
     for dets in dets_by_frame.values():
         for d in dets:
             d.pop("track_id", None)
     for c in range(span[0], span[1] + 1):
         tracker.step(c, dets_by_frame.get(c, []))
-    cold = cold_space(hot_frac, p)
+    cold = cold_space(hot_frac, n_post, fps, p)
     rows = []
     for t in tracker.flush():
-        f = track_features(t.points, fps, s, cold, p)
-        reason = classify(f, p)
+        f = track_features(t.points, fps, s, cold, p, dv)
+        reason = classify(f, p, dv)
         f["track_id"] = t.public_id
         f["is_firebrand"] = reason == ""
         f["reject_reason"] = reason
         for _, d in t.points:
             d["track_id"] = t.public_id
         rows.append(f)
-    return rows, gate_new
+    dv["cold_space_share"] = round(float(cold.mean()), 4)
+    return rows, dv
 
 
 def run_frames(frames: Iterable[Tuple[int, np.ndarray]], shape: Tuple[int, int], fps: float,
@@ -128,10 +139,11 @@ def run_frames(frames: Iterable[Tuple[int, np.ndarray]], shape: Tuple[int, int],
     det = detect_stream(frames, shape, fps, p, log)
     t0 = time.time()
     if det["ignition_frame"] is None:
-        tracks, gate_new = [], min(200.0, p.v_max_mps / (s * fps))
+        tracks, dv = [], p.derived(fps, s)
+        dv["cold_space_share"] = None
     else:
-        tracks, gate_new = track_classify(det["dets_by_frame"], (det["ignition_frame"], det["last_frame"]),
-                                          fps, s, det["hot_frac"], p)
+        tracks, dv = track_classify(det["dets_by_frame"], (det["ignition_frame"], det["last_frame"]),
+                                    fps, s, det["hot_frac"], det["n_post"], p)
     all_dets = [d for c in sorted(det["dets_by_frame"]) for d in det["dets_by_frame"][c]]
     return {
         "detections": all_dets,
@@ -139,9 +151,11 @@ def run_frames(frames: Iterable[Tuple[int, np.ndarray]], shape: Tuple[int, int],
         "ignition_frame": det["ignition_frame"],
         "first_frame": det["first_frame"], "last_frame": det["last_frame"],
         "hot_frac": det["hot_frac"],
+        "n_post": det["n_post"],
         "m_per_px": s,
         "window_frames": det["window_frames"],
-        "gate_new_px": gate_new,
+        "derived": dv,
+        "max_samples_held": det["max_samples_held"],
         "frames_processed": det["frames_processed"],
         "seconds": det["seconds"] + (time.time() - t0),
     }

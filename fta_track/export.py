@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import csv
 import gzip
+import hashlib
 import json
 import math
 import os
 import subprocess
+from dataclasses import fields
 from typing import Dict, List, Optional
 
 import cv2
@@ -29,6 +31,7 @@ TRACK_COLS = [
     "displacement_m", "path_length_m", "straightness",
     "launch_speed_mps", "launch_dir_deg", "mean_speed_mps", "max_speed_mps", "vert_accel_mps2",
     "peak_c", "mean_c", "cooling_c_per_s", "mean_area_px", "area_jump", "edge_grad",
+    "launch_t_s", "launch_fit",
 ]
 POINT_COLS = ["track_id", "is_firebrand", "frame", "time_s", "x_px", "y_px", "x_m", "y_m",
               "vx_mps", "vy_mps", "speed_mps", "max_c", "mean_c", "contrast_c", "edge_grad", "cold", "area_px"]
@@ -96,6 +99,7 @@ def _write_tables(out_dir: str, res: Dict, fps: float, width: int, height: int, 
                         _fmt(d["excess"], 1)])
 
     fb_ids = {t["track_id"] for t in tracks if t["is_firebrand"]}
+    safe = (label or "recording").replace("/", "__")
     images, anns, seen = [], [], {}
     for d in res["detections"]:
         if d.get("track_id") not in fb_ids:
@@ -103,13 +107,23 @@ def _write_tables(out_dir: str, res: Dict, fps: float, width: int, height: int, 
         fr = d["frame"]
         if fr not in seen:
             seen[fr] = len(images) + 1
-            images.append({"id": seen[fr], "frame": fr, "width": width, "height": height})
+            images.append({"id": seen[fr], "file_name": f"{safe}/frame_{fr:06d}.png", "frame": fr,
+                           "width": width, "height": height})
         x, y, bw, bh = d["bbox"]
         anns.append({"id": len(anns) + 1, "image_id": seen[fr], "category_id": 1,
                      "bbox": [x, y, bw, bh], "area": d["area"], "iscrowd": 0, "track_id": d["track_id"]})
     with open(os.path.join(out_dir, "labels_coco.json"), "w") as fh:
-        json.dump({"info": {"source": label, "note": "thermal frame indices; firebrand tracks only"},
+        json.dump({"info": {"label": label, "fps": fps, "width": width, "height": height,
+                            "frame_index": "0-based frame of the Level 1.1 NetCDF",
+                            "file_name": "<label with / as __>/frame_<6-digit frame>.png, for extracted frames",
+                            "image_ids": "1-based and per file: remap when merging recordings",
+                            "note": "thermal frame boxes [x, y, w, h] of firebrand tracks only"},
                    "images": images, "annotations": anns, "categories": [{"id": 1, "name": "firebrand"}]}, fh)
+
+
+def params_hash(d: Dict, keys=None) -> str:
+    sel = {k: d[k] for k in sorted(d) if keys is None or k in keys}
+    return hashlib.sha1(json.dumps(sel, sort_keys=True, default=str).encode()).hexdigest()[:12]
 
 
 def _track_summary(res: Dict, p) -> Dict:
@@ -118,22 +132,22 @@ def _track_summary(res: Dict, p) -> Dict:
     for t in tracks:
         if t["reject_reason"]:
             reasons[t["reject_reason"]] = reasons.get(t["reject_reason"], 0) + 1
+    pd = p.to_dict()
     return {
         "firebrand_count": sum(1 for t in tracks if t["is_firebrand"]),
         "confirmed_tracks": len(tracks),
         "rejected_by_reason": reasons,
         "detections": len(res["detections"]),
-        "gate_new_px": res["gate_new_px"],
-        "cold_space_share": res.get("cold_share"),
-        "params": p.to_dict(),
+        "derived": res["derived"],
+        "params": pd,
+        "params_hash": params_hash(pd),
+        "detection_params_hash": params_hash(pd, DETECTION_PARAMS),
         "tracking_code_version": code_version(),
     }
 
 
 def write_outputs(out_dir: str, res: Dict, rec, p, label: str = "",
                   start: int = 0, stop: Optional[int] = None) -> None:
-    from .classify import cold_space
-    res["cold_share"] = round(float(cold_space(res["hot_frac"], p).mean()), 4)
     _write_tables(out_dir, res, rec.fps, rec.width, rec.height, label or rec.path)
 
     hf = res["hot_frac"].astype(np.float16)
@@ -150,6 +164,7 @@ def write_outputs(out_dir: str, res: Dict, rec, p, label: str = "",
         "frames_processed": res["frames_processed"],
         "frame_range": [start, stop if stop is not None else rec.n_frames],
         "first_frame": res["first_frame"], "last_frame": res["last_frame"],
+        "post_ignition_frames": res["n_post"],
         "fps": fps, "width": rec.width, "height": rec.height,
         "distance_m": rec.distance_m, "emissivity": rec.emissivity,
         "m_per_px": res["m_per_px"],
@@ -157,6 +172,7 @@ def write_outputs(out_dir: str, res: Dict, rec, p, label: str = "",
         "ignition_time_s": (ign / fps) if ign is not None else None,
         "ignition_definition": f"first frame with >= {p.ignition_min_px} px >= {p.hot_thresh_c:g} C",
         "persist_window_frames": res["window_frames"],
+        "max_background_samples_held": res.get("max_samples_held"),
         "velocity_note": "projected in-image-plane component; scale exact only at distance_m",
         "temperature_note": "apparent temperature at the recorded emissivity; sub-pixel embers read low",
         **_track_summary(res, p),
@@ -168,22 +184,48 @@ def write_outputs(out_dir: str, res: Dict, rec, p, label: str = "",
         json.dump(summary, fh, indent=2, default=str)
 
 
-def retrack(out_dir: str, p) -> Dict:
+def resolve_retrack_params(out_dir: str, overrides: Dict, from_defaults: bool = False):
+    """The parameters a re-track uses.
+
+    By default the run's own parameters plus explicit overrides: starting from the
+    defaults would silently undo any override the run was made with. With
+    from_defaults, tracking and classification start from the current defaults
+    instead (for re-tracking after the code's defaults change). Either way the
+    detection-stage parameters are the run's, because they shaped
+    detections.csv.gz; an override that changes one raises ValueError.
+    """
+    from .params import Params
+
+    with open(os.path.join(out_dir, "summary.json")) as fh:
+        summary = json.load(fh)
+    known = {f.name for f in fields(Params)}
+    recorded = {k: v for k, v in summary.get("params", {}).items() if k in known}
+    for k in DETECTION_PARAMS:
+        if k not in recorded:
+            raise ValueError(f"{out_dir}: summary.json does not record {k}; re-run `run`")
+    changed = [k for k in DETECTION_PARAMS if k in overrides and overrides[k] != recorded[k]]
+    if changed:
+        raise ValueError(f"{out_dir}: {', '.join(changed)} shape the detections themselves; "
+                         f"re-run `run` to change them")
+    if from_defaults:
+        base = {**Params().to_dict(), **{k: recorded[k] for k in DETECTION_PARAMS}}
+        if "m_per_px" in recorded:
+            base["m_per_px"] = recorded["m_per_px"]       # a scale override is not a tracking default
+    else:
+        base = recorded
+    return Params(**{**base, **overrides}), summary
+
+
+def retrack(out_dir: str, overrides: Optional[Dict] = None, from_defaults: bool = False) -> Dict:
     """Re-run tracking and classification from a recording's saved outputs.
 
-    Reads detections.csv.gz and hot_fraction.npz; never touches the NetCDF.
-    Detection-stage parameters cannot change here: they shaped detections.csv.gz.
+    Reads detections.csv.gz and hot_fraction.npz; never touches the NetCDF. With no
+    overrides it reproduces the run exactly.
     """
     from .pipeline import track_classify
     from .units import metres_per_pixel
 
-    with open(os.path.join(out_dir, "summary.json")) as fh:
-        summary = json.load(fh)
-    old = summary["params"]
-    changed = [k for k in DETECTION_PARAMS if k in old and old[k] != getattr(p, k)]
-    if changed:
-        raise ValueError(f"{', '.join(changed)} shape the detections themselves; re-run `run` to change them")
-
+    p, summary = resolve_retrack_params(out_dir, overrides or {}, from_defaults)
     dets_by_frame: Dict[int, List[Dict]] = {}
     nan = float("nan")
     with gzip.open(os.path.join(out_dir, "detections.csv.gz"), "rt", newline="") as fh:
@@ -203,13 +245,17 @@ def retrack(out_dir: str, p) -> Dict:
     fps = float(summary["fps"])
     s = p.m_per_px if p.m_per_px else metres_per_pixel(summary["distance_m"], p.lens_hfov_deg, summary["width"])
     ign = summary["ignition_frame"]
+    n_post = summary.get("post_ignition_frames")
+    if n_post is None and ign is not None:
+        n_post = int(summary["last_frame"]) - int(ign) + 1    # outputs from before this was recorded
+    n_post = int(n_post or 0)
     if ign is None:
-        tracks, gate_new = [], min(200.0, p.v_max_mps / (s * fps))
+        tracks, dv = [], p.derived(fps, s)
+        dv["cold_space_share"] = None
     else:
-        tracks, gate_new = track_classify(dets_by_frame, (ign, summary["last_frame"]), fps, s, hot_frac, p)
-    from .classify import cold_space
+        tracks, dv = track_classify(dets_by_frame, (ign, summary["last_frame"]), fps, s, hot_frac, n_post, p)
     res = {"tracks": tracks, "detections": [d for c in sorted(dets_by_frame) for d in dets_by_frame[c]],
-           "gate_new_px": gate_new, "cold_share": round(float(cold_space(hot_frac, p).mean()), 4)}
+           "derived": dv}
     _write_tables(out_dir, res, fps, summary["width"], summary["height"], summary.get("label") or summary["source_file"])
     summary.update(_track_summary(res, p))
     summary["m_per_px"] = s

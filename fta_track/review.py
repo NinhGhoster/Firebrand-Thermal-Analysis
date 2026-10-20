@@ -10,7 +10,13 @@ persist in the browser and are downloaded as verdicts.json.
 `score` compares verdicts with the pipeline's decisions: the share of counted
 firebrands that are real (precision), and the share of rejected tracks that
 were real firebrands (what the gates threw away), per recording and per
-rejection reason.
+rejection reason, both as raw sample tallies and as estimates weighted by the
+size of each sampled stratum.
+
+Blindness: clips have random ids and file names, the page is shuffled with a
+fresh random order when it is written, and it carries no label, track id,
+feature or decision. Verdicts are keyed to the batch's random nonce, so
+answers given on one batch can never be scored against another.
 """
 
 from __future__ import annotations
@@ -21,6 +27,7 @@ import json
 import math
 import os
 import random
+import secrets
 from collections import defaultdict
 from typing import Dict, List
 
@@ -97,6 +104,19 @@ def _crop_rect(points, W, H, pad=48, min_side=96):
     return x0, y0, min(side, W), min(side, H)
 
 
+def _shrink(crop: np.ndarray, out_w: int, out_h: int, scale: float) -> np.ndarray:
+    """Resize a temperature crop to a tile without losing small hot objects.
+
+    Nearest-neighbour downsampling keeps one source pixel in 1/scale per axis, so
+    a 1-3 px firebrand vanishes from most tiles of a long track. A max filter of
+    that size first makes every kept pixel the hottest of its neighbourhood.
+    """
+    if scale < 1.0:
+        k = int(math.ceil(1.0 / scale))
+        crop = cv2.dilate(crop, np.ones((k, k), np.uint8))
+    return cv2.resize(crop, (out_w, out_h), interpolation=cv2.INTER_NEAREST)
+
+
 def _render(var, track: Dict, n_frames: int, out_png: str, out_ctx: str) -> Dict:
     H, W = var.shape[1], var.shape[2]
     f0 = max(0, track["points"][0][0] - PAD_FRAMES)
@@ -105,15 +125,16 @@ def _render(var, track: Dict, n_frames: int, out_png: str, out_ctx: str) -> Dict
     frames = list(range(f0, f1 + 1, stride))
     x0, y0, cw, ch = _crop_rect(track["points"], W, H)
     scale = TILE / max(cw, ch)
+    out_w, out_h = max(1, int(round(cw * scale))), max(1, int(round(ch * scale)))
     at = {f: (x, y) for f, x, y in track["points"]}
 
-    block = np.asarray(var[f0:f1 + 1, y0:y0 + ch, x0:x0 + cw], dtype=np.float32)
+    # only the frames the clip shows: a long track must not load thousands of frames
+    block = np.asarray(var[f0:f1 + 1:stride, y0:y0 + ch, x0:x0 + cw], dtype=np.float32)
     rows = math.ceil(len(frames) / SPRITE_COLS)
     sprite = np.zeros((rows * TILE, SPRITE_COLS * TILE, 3), dtype=np.uint8)
     marks = []
     for k, f in enumerate(frames):
-        tile = cv2.resize(_colour(block[f - f0]), (int(round(cw * scale)), int(round(ch * scale))),
-                          interpolation=cv2.INTER_NEAREST)
+        tile = _colour(_shrink(block[k], out_w, out_h, scale))
         r, c = divmod(k, SPRITE_COLS)
         sprite[r * TILE:r * TILE + tile.shape[0], c * TILE:c * TILE + tile.shape[1]] = tile
         p = at.get(f)
@@ -131,6 +152,13 @@ def _render(var, track: Dict, n_frames: int, out_png: str, out_ctx: str) -> Dict
             "cols": SPRITE_COLS, "crop_px": [x0, y0, cw, ch]}
 
 
+def _new_id(taken) -> str:
+    while True:
+        cid = secrets.token_hex(6)
+        if cid not in taken:
+            return cid
+
+
 def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
                n_firebrand: int = 15, n_rejected: int = 12, min_det: int = 3, seed: int = 0) -> int:
     import netCDF4 as nc
@@ -138,9 +166,10 @@ def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
     tracks = _read_tracks(results_dir)
     rng = random.Random(f"{seed}:{label}")
     fb = [t for t in tracks if t["is_firebrand"] == "1"]
-    pick = rng.sample(fb, min(n_firebrand, len(fb)))
+    picks = [(t, "counted", len(fb)) for t in rng.sample(fb, min(n_firebrand, len(fb)))]
     # Rejected tracks, spread evenly over the rejection reasons, so the borderline
     # ones (low contrast, little movement) are judged and not just obvious junk.
+    # Each clip records its stratum and the stratum's size, so score() can weight.
     by_reason = defaultdict(list)
     for t in tracks:
         if t["is_firebrand"] != "1" and t["n_det"] >= min_det:
@@ -154,13 +183,23 @@ def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
                 quota[r] += 1
                 left -= 1
     for r in reasons:
-        pick += rng.sample(by_reason[r], quota[r])
+        picks += [(t, "rejected:" + r, len(by_reason[r])) for t in rng.sample(by_reason[r], quota[r])]
+    sampled = defaultdict(int)
+    for _, stratum, _ in picks:
+        sampled[stratum] += 1
 
     clips_dir = os.path.join(batch_dir, "clips")
     os.makedirs(clips_dir, exist_ok=True)
     man_path = os.path.join(batch_dir, "manifest.json")
     manifest = json.load(open(man_path)) if os.path.exists(man_path) else {"clips": []}
+    manifest.setdefault("nonce", secrets.token_hex(8))
+    for old in [c for c in manifest["clips"] if c["label"] == label]:
+        for suffix in (".png", "_ctx.jpg"):
+            path = os.path.join(clips_dir, old["id"] + suffix)
+            if os.path.exists(path):
+                os.remove(path)
     manifest["clips"] = [c for c in manifest["clips"] if c["label"] != label]
+    taken = {c["id"] for c in manifest["clips"]}
 
     ds = nc.Dataset(nc_path, "r")
     try:
@@ -168,26 +207,27 @@ def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
         var.set_auto_maskandscale(False)
         n_frames = var.shape[0]
         fps = float(ds.getncattr("frame_rate")) if "frame_rate" in ds.ncattrs() else 30.0
-        safe = label.replace("/", "__")
-        for t in pick:
-            cid = f"{safe}__{t['track_id']}"
+        for t, stratum, population in picks:
+            cid = _new_id(taken)
+            taken.add(cid)
             info = _render(var, t, n_frames, os.path.join(clips_dir, cid + ".png"),
                            os.path.join(clips_dir, cid + "_ctx.jpg"))
             manifest["clips"].append({
-                "id": cid, "label": label, "track_id": t["track_id"],
+                "id": cid, "fps": fps, **info,
                 # hidden from the reviewer; used only by score()
+                "label": label, "track_id": t["track_id"],
                 "pipeline_firebrand": t["is_firebrand"] == "1",
                 "reject_reason": t["reject_reason"],
+                "stratum": stratum, "stratum_population": population, "stratum_sampled": sampled[stratum],
                 "features": {k: _num(t.get(k)) for k in FEATURES},
                 "point_data": t["point_data"],   # [frame, x, y, max_c, contrast_c, hot_frac]
-                "fps": fps, **info,
             })
     finally:
         ds.close()
     with open(man_path, "w") as fh:
         json.dump(manifest, fh)
     write_page(batch_dir)
-    return len(pick)
+    return len(picks)
 
 
 _PAGE = r"""<!doctype html>
@@ -232,28 +272,26 @@ kbd { background:#2c3038; border-radius:4px; padding:1px 6px; font-size:12px; }
 </main>
 <script>
 const M = __MANIFEST__;
-const KEY = "fta-review-" + __BATCH__;
-let order = M.clips.map((c, i) => i);
-(function shuffle(a, s) { for (let i = a.length - 1; i > 0; i--) { s = (s * 9301 + 49297) % 233280; const j = Math.floor(s / 233280 * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } })(order, 12345);
+const KEY = "fta-review-" + M.nonce;   // random per batch: answers never carry over to another batch
 let V = {}; try { V = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) {}
-let pos = Math.max(0, order.findIndex(i => !(M.clips[i].id in V))); if (pos < 0) pos = 0;
+let pos = M.clips.findIndex(c => !(c.id in V)); if (pos < 0) pos = 0;
 let showMark = true, timer = null, img = new Image();
 const cv = document.getElementById("cv"), g = cv.getContext("2d");
 function save() { try { localStorage.setItem(KEY, JSON.stringify(V)); } catch (e) {} }
 function show() {
-  const c = M.clips[order[pos]];
+  const c = M.clips[pos];
   img = new Image(); img.src = "clips/" + c.id + ".png"; img.onload = play;
   document.getElementById("ctx").src = "clips/" + c.id + "_ctx.jpg";
-  document.getElementById("meta").textContent = "Clip " + (pos + 1) + " of " + order.length + " · " + c.frames.length + " frames at " + c.fps + " fps (" + (c.frames.length * (c.frames[1] - c.frames[0] || 1) / c.fps).toFixed(1) + " s)";
+  document.getElementById("meta").textContent = "Clip " + (pos + 1) + " of " + M.clips.length + " · " + c.frames.length + " frames at " + c.fps + " fps (" + (c.frames.length * (c.frames[1] - c.frames[0] || 1) / c.fps).toFixed(1) + " s)";
   const v = V[c.id];
   document.getElementById("ans").innerHTML = v ? "Your answer: <span class='done'>" + {y:"Yes",n:"No",u:"Unsure"}[v] + "</span>" : "No answer yet";
-  const n = Object.keys(V).length;
-  document.getElementById("count").textContent = n + " of " + order.length + " answered";
-  document.getElementById("prog").style.width = (100 * n / order.length) + "%";
+  const n = M.clips.filter(c => c.id in V).length;
+  document.getElementById("count").textContent = n + " of " + M.clips.length + " answered";
+  document.getElementById("prog").style.width = (100 * n / M.clips.length) + "%";
 }
 function play() {
   clearInterval(timer);
-  const c = M.clips[order[pos]]; let k = 0;
+  const c = M.clips[pos]; let k = 0;
   const dt = Math.max(30, 1000 / c.fps * (c.frames[1] - c.frames[0] || 1));
   timer = setInterval(() => {
     const r = Math.floor(k / c.cols), q = k % c.cols;
@@ -264,24 +302,29 @@ function play() {
     k++; if (k >= c.n_tiles) k = 0;
   }, dt);
 }
-function answer(v) { V[M.clips[order[pos]].id] = v; save(); if (pos < order.length - 1) pos++; show(); }
+function answer(v) { V[M.clips[pos].id] = v; save(); if (pos < M.clips.length - 1) pos++; show(); }
 document.querySelectorAll(".btns button").forEach(b => b.onclick = () => answer(b.dataset.v));
 document.getElementById("prev").onclick = () => { if (pos > 0) pos--; show(); };
-document.getElementById("next").onclick = () => { if (pos < order.length - 1) pos++; show(); };
+document.getElementById("next").onclick = () => { if (pos < M.clips.length - 1) pos++; show(); };
 document.getElementById("dl").onclick = () => {
-  const blob = new Blob([JSON.stringify({batch: __BATCH__, verdicts: V}, null, 1)], {type: "application/json"});
+  const blob = new Blob([JSON.stringify({nonce: M.nonce, verdicts: V}, null, 1)], {type: "application/json"});
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "verdicts.json"; a.click();
 };
 document.addEventListener("keydown", e => {
+  // a held key or a browser shortcut must not answer clips the reviewer has not seen
+  if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === "y" || e.key === "n" || e.key === "u") answer(e.key);
   else if (e.key === "ArrowLeft") { if (pos > 0) pos--; show(); }
-  else if (e.key === "ArrowRight") { if (pos < order.length - 1) pos++; show(); }
+  else if (e.key === "ArrowRight") { if (pos < M.clips.length - 1) pos++; show(); }
   else if (e.key === " ") { e.preventDefault(); play(); }
   else if (e.key === "m") showMark = !showMark;
 });
 show();
 </script></body></html>
 """
+
+# what the reviewer's page may carry; everything else in the manifest stays hidden
+_PUBLIC_KEYS = ("id", "fps", "frames", "marks", "n_tiles", "tile", "cols", "crop_px")
 
 
 def merge_batches(out_dir: str, parts: List[str]) -> int:
@@ -294,27 +337,28 @@ def merge_batches(out_dir: str, parts: List[str]) -> int:
         man = json.load(open(os.path.join(part, "manifest.json")))
         for c in man["clips"]:
             if c["id"] in seen:
-                continue
+                raise ValueError(f"clip id {c['id']} appears in more than one batch")
             seen.add(c["id"])
             for suffix in (".png", "_ctx.jpg"):
                 shutil.copy2(os.path.join(part, "clips", c["id"] + suffix),
                              os.path.join(out_dir, "clips", c["id"] + suffix))
             clips.append(c)
     with open(os.path.join(out_dir, "manifest.json"), "w") as fh:
-        json.dump({"clips": clips}, fh)
+        json.dump({"nonce": secrets.token_hex(8), "clips": clips}, fh)
     write_page(out_dir)
     return len(clips)
 
 
 def write_page(batch_dir: str) -> str:
     man = json.load(open(os.path.join(batch_dir, "manifest.json")))
-    # the reviewer's page carries no pipeline decision
-    public = {"clips": [{k: v for k, v in c.items()
-                         if k not in ("pipeline_firebrand", "reject_reason", "label", "track_id", "features",
-                                      "point_data")}
-                        for c in man["clips"]]}
-    html = _PAGE.replace("__MANIFEST__", json.dumps(public)).replace(
-        "__BATCH__", json.dumps(os.path.basename(os.path.abspath(batch_dir))))
+    nonce = man.setdefault("nonce", secrets.token_hex(8))
+    with open(os.path.join(batch_dir, "manifest.json"), "w") as fh:
+        json.dump(man, fh)
+    # A fresh random order every time the page is written: clips are sampled in class
+    # blocks, and a fixed shuffle would put the same classes at the same positions.
+    public = [{k: c[k] for k in _PUBLIC_KEYS} for c in man["clips"]]
+    random.SystemRandom().shuffle(public)
+    html = _PAGE.replace("__MANIFEST__", json.dumps({"nonce": nonce, "clips": public}))
     path = os.path.join(batch_dir, "index.html")
     with open(path, "w") as fh:
         fh.write(html)
@@ -322,8 +366,17 @@ def write_page(batch_dir: str) -> str:
 
 
 def score(batch_dir: str, verdicts_path: str) -> Dict:
-    man = {c["id"]: c for c in json.load(open(os.path.join(batch_dir, "manifest.json")))["clips"]}
-    V = json.load(open(verdicts_path))["verdicts"]
+    manifest = json.load(open(os.path.join(batch_dir, "manifest.json")))
+    man = {c["id"]: c for c in manifest["clips"]}
+    blob = json.load(open(verdicts_path))
+    if blob.get("nonce") != manifest.get("nonce"):
+        raise ValueError(f"{verdicts_path} was not made on this batch "
+                         f"(nonce {blob.get('nonce')!r}, batch {manifest.get('nonce')!r})")
+    V = blob.get("verdicts", {})
+    unknown = sorted(cid for cid in V if cid not in man)
+    invalid = sorted(cid for cid, v in V.items() if cid in man and v not in ("y", "n", "u"))
+    valid = {cid: v for cid, v in V.items() if cid in man and v in ("y", "n", "u")}
+    unanswered = sorted(cid for cid in man if cid not in valid)
 
     def tally(rows):
         y = sum(1 for r in rows if r == "y")
@@ -333,17 +386,52 @@ def score(batch_dir: str, verdicts_path: str) -> Dict:
 
     fb, rej = defaultdict(list), defaultdict(list)
     by_reason = defaultdict(list)
-    for cid, v in V.items():
-        c = man.get(cid)
-        if c is None:
-            continue
+    strata = defaultdict(lambda: {"population": 0, "verdicts": []})
+    for cid, v in valid.items():
+        c = man[cid]
         (fb if c["pipeline_firebrand"] else rej)[c["label"]].append(v)
         if not c["pipeline_firebrand"]:
             by_reason[c["reject_reason"]].append(v)
+        key = (c["label"], c.get("stratum") or ("counted" if c["pipeline_firebrand"] else "rejected:" + c["reject_reason"]))
+        strata[key]["population"] = c.get("stratum_population") or 0
+        strata[key]["verdicts"].append(v)
+
+    # Stratum-weighted estimates: each sampled stratum stands for its whole population.
+    est_real_counted = est_real_rejected = pop_counted = pop_rejected = 0.0
+    judged_counted = judged_rejected = 0.0
+    for (lab, stratum), d in strata.items():
+        t = tally(d["verdicts"])
+        if t["share_yes"] is None:
+            continue
+        N = float(d["population"])
+        if stratum == "counted":
+            est_real_counted += N * t["share_yes"]
+            pop_counted += N
+        else:
+            est_real_rejected += N * t["share_yes"]
+            pop_rejected += N
+    weighted = {
+        "counted_tracks_in_judged_strata": pop_counted,
+        "estimated_real_among_counted": round(est_real_counted, 1),
+        "estimated_precision": round(est_real_counted / pop_counted, 3) if pop_counted else None,
+        "rejected_tracks_in_judged_strata": pop_rejected,
+        "estimated_real_among_rejected": round(est_real_rejected, 1),
+        "estimated_recall_among_confirmed_tracks": (round(est_real_counted / (est_real_counted + est_real_rejected), 3)
+                                                    if (est_real_counted + est_real_rejected) else None),
+        "note": "weighted by stratum size (Horvitz-Thompson); covers only strata with at least one yes/no verdict; "
+                "recall is relative to confirmed tracks, not to every firebrand in the video",
+    }
     out = {
-        "answered": len(V),
-        "precision_of_counted_firebrands": tally([v for vs in fb.values() for v in vs]),
-        "real_firebrands_among_rejected": tally([v for vs in rej.values() for v in vs]),
+        "answered": len(valid),
+        "unanswered": len(unanswered),
+        "unknown_ids": unknown,
+        "invalid_values": invalid,
+        "raw_sample": {
+            "precision_of_counted_firebrands": tally([v for vs in fb.values() for v in vs]),
+            "real_firebrands_among_rejected": tally([v for vs in rej.values() for v in vs]),
+            "note": "unweighted shares of a stratified sample; see weighted for population estimates",
+        },
+        "weighted": weighted,
         "per_recording": {lab: {"counted": tally(fb.get(lab, [])), "rejected": tally(rej.get(lab, []))}
                           for lab in sorted(set(fb) | set(rej))},
         "rejected_by_reason": {k: tally(v) for k, v in sorted(by_reason.items())},

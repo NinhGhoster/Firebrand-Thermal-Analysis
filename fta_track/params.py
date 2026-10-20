@@ -1,10 +1,21 @@
-"""All tunable parameters in one place, recorded verbatim in every summary.json."""
+"""All tunable parameters in one place, recorded verbatim in every summary.json.
+
+Every threshold that concerns time is a duration in seconds, converted to frames
+per recording by `derived()`, because the corpus mixes frame rates (10, 14.93,
+15.15, 15.38, 29.41, 30.3 and 31.25 fps) within the same treatment cells. A
+threshold counted in frames would let the frame rate decide what is counted.
+The durations below were chosen so that each conversion rounds the same way
+across every rate in the corpus (the ~15 fps group never splits), and they
+reproduce the frame counts the pipeline was tuned with at ~30 fps.
+"""
 
 from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass
 from typing import Optional
+
+_EPS = 1e-9
 
 
 @dataclass
@@ -33,13 +44,15 @@ class Params:
     persist_dilate_px: int = 3
 
     # --- tracking ----------------------------------------------------------
-    v_max_mps: float = 4.0        # sets the search radius for a track with no velocity yet
-    gate_min_px: float = 15.0     # search radius around the prediction for a moving track
-    gate_speed_frac: float = 0.5  # ... plus this fraction of the predicted speed (px/frame)
-    kalman_q_px: float = 3.0      # process noise: unmodelled acceleration, px/frame^2
-    kalman_r_px: float = 1.0      # measurement noise, px
-    max_miss_s: float = 0.2       # a confirmed track coasts on its prediction this long
-    min_hits: int = 3             # detections needed before a track is confirmed
+    v_max_mps: float = 4.0        # search radius for a track that has no velocity yet
+    # Unmodelled acceleration (gravity, drag, plume turbulence), as a standard
+    # deviation in m/s^2; converted per recording to px/frame^2.
+    accel_sigma_mps2: float = 6.0
+    kalman_r_px: float = 2.0      # centroid measurement noise, px
+    gate_chi2: float = 13.8       # Mahalanobis gate: chi-square, 2 dof, 99.9 %
+    gate_floor_px: float = 8.0    # always accept a detection this close to the prediction
+    max_miss_s: float = 0.18      # a confirmed track coasts on its prediction this long
+    confirm_span_s: float = 0.05  # detections must span this long before a track is confirmed
     # A solid firebrand does not change size a hundredfold between frames; gas
     # puffs and specks do. Links whose areas differ by more than this are refused
     # (ratio of area + 2 px, so 1-4 px specks are not over-penalised).
@@ -48,20 +61,23 @@ class Params:
     # --- firebrand classification -----------------------------------------
     # The rig (burner tray, frame, panels) and the flame sit at or near the hot
     # threshold for much of a burn, and pixels hovering there flicker into blobs.
-    # "Cold space" is everywhere hot in less than env_frac of post-ignition frames;
-    # a firebrand must be seen there, clearly hotter than its surroundings.
-    min_track_dets: int = 4
-    env_frac: float = 0.05        # long-term hot fraction that marks rig and flame
+    # "Cold space" is everywhere hot in fewer than env_frac of post-ignition frames
+    # (and, in short recordings, fewer than env_min_s worth of frames); a firebrand
+    # must be seen there, clearly hotter than its surroundings, with a hard edge.
+    min_track_span_s: float = 0.08    # a firebrand's detections must span at least this long
+    env_frac: float = 0.05            # long-term hot fraction that marks rig and flame
+    env_min_s: float = 3.0            # ... but never fewer hot frames than this many seconds
     env_dilate_px: int = 5
-    min_contrast_c: float = 80.0  # blob peak minus its temporal background (ring if unavailable)
-    min_edge_grad: float = 30.0   # degC per pixel across the blob edge: solid, not gas
-    min_cold_dets: int = 2        # detections in cold space meeting both of the above
-    min_disp_m: float = 0.05      # net displacement
-    min_straightness: float = 0.5 # net / path length, applied only with >= 4 motion vectors
+    min_contrast_c: float = 80.0      # blob peak minus its temporal background (ring if unavailable)
+    min_edge_grad: float = 30.0       # degC per pixel across the blob edge: solid, not gas
+    min_cold_s: float = 0.066         # evidence detections must cover this long
+    min_disp_m: float = 0.05          # net displacement
+    min_straightness: float = 0.5     # median net / path length over windows ...
+    straight_min_s: float = 0.12      # ... of this duration, once the track is at least this long
 
     # --- kinematics and units ---------------------------------------------
-    lsq_window: int = 5           # positions per least-squares velocity fit
-    lens_hfov_deg: float = 45.0   # FLIR T1040, FOL21 lens
+    lsq_window_s: float = 0.165       # duration of each least-squares velocity fit
+    lens_hfov_deg: float = 45.0       # FLIR T1040, FOL21 lens
     m_per_px: Optional[float] = None  # override the lens-derived scale
 
     def window_frames(self, fps: float) -> int:
@@ -70,7 +86,21 @@ class Params:
         return n if n % 2 else n + 1
 
     def max_miss_frames(self, fps: float) -> int:
-        return max(1, int(math.ceil(self.max_miss_s * fps)))
+        return max(1, int(math.ceil(self.max_miss_s * fps - _EPS)))
+
+    def derived(self, fps: float, m_per_px: float) -> dict:
+        """The per-recording frame counts and pixel values the thresholds turn into."""
+        return {
+            "window_frames": self.window_frames(fps),
+            "max_miss_frames": self.max_miss_frames(fps),
+            "min_hits": max(2, 1 + int(math.ceil(self.confirm_span_s * fps - _EPS))),
+            "min_track_dets": max(3, 1 + int(math.ceil(self.min_track_span_s * fps - _EPS))),
+            "min_cold_dets": max(1, int(round(self.min_cold_s * fps))),
+            "straight_min_vectors": max(3, int(math.ceil(self.straight_min_s * fps - _EPS))),
+            "lsq_points": max(3, int(round(self.lsq_window_s * fps))),
+            "gate_new_px": min(200.0, self.v_max_mps / (m_per_px * fps)),
+            "q_px": self.accel_sigma_mps2 / (m_per_px * fps * fps),
+        }
 
     def to_dict(self) -> dict:
         return asdict(self)

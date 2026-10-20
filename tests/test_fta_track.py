@@ -209,3 +209,89 @@ class TestTracker:
                 yield i, f
         res = _run(frames(), ignition_min_px=1)
         assert len([t for t in res["tracks"] if t["n_det"] >= 10]) == 1
+
+
+# --- frame-rate independence: real frame size and scale, real physics -----------------
+HR, WR, SR, G = 768, 1024, 0.0016180, 9.81
+
+
+def _ballistic(fps, v=(0.5, 3.0), life_s=0.6, drop=(), seed=3):
+    """A sample burning at the bottom, and one 3x3 ember launched from beside it at
+    v = (vx, vy_up) m/s that decelerates under gravity. `drop` lists frames where the
+    ember is not visible."""
+    rng = np.random.default_rng(seed)
+    n = int(round((0.5 + life_s + 0.3) * fps))
+    t_launch = 0.5
+    for i in range(n):
+        f = np.full((HR, WR), 20.0, dtype=np.float32) + rng.normal(0, 0.2, (HR, WR)).astype(np.float32)
+        f[600:700, 400:600] = 600.0 + rng.normal(0, 30, (100, 200))
+        t = i / fps - t_launch
+        if 0 <= t <= life_s and i not in drop:
+            x = 360 + v[0] * t / SR
+            y = 595 - (v[1] * t - 0.5 * G * t * t) / SR
+            if 0 <= x < WR - 3 and 0 <= y < HR - 3:
+                f[int(round(y)):int(round(y)) + 3, int(round(x)):int(round(x)) + 3] = 800.0
+        yield i, f
+
+
+def _run_real(frames, fps):
+    from fta_track.params import Params
+    return run_frames(frames, (HR, WR), fps, 2.0, Params(m_per_px=SR), log=lambda m: None)
+
+
+class TestFrameRateIndependence:
+    @pytest.mark.parametrize("fps", [10.0, 15.38, 30.3])
+    def test_a_ballistic_ember_is_one_firebrand_at_every_frame_rate(self, fps):
+        res = _run_real(_ballistic(fps), fps)
+        fb = [t for t in res["tracks"] if t["is_firebrand"]]
+        assert len(fb) == 1, [(t["n_det"], t["reject_reason"]) for t in res["tracks"]]
+        expected = int(0.6 * fps) + 1
+        assert fb[0]["n_det"] >= expected - 1, "the ember's track was cut short"
+
+    @pytest.mark.parametrize("fps", [15.38, 30.3])
+    def test_a_two_frame_dropout_at_the_apex_does_not_split_the_track(self, fps):
+        apex = int(round((0.5 + 3.0 / G) * fps))
+        res = _run_real(_ballistic(fps, drop=(apex, apex + 1)), fps)
+        fb = [t for t in res["tracks"] if t["is_firebrand"]]
+        assert len(fb) == 1, [(t["n_det"], t["start_frame"], t["reject_reason"]) for t in res["tracks"]]
+
+    @pytest.mark.parametrize("fps", [10.0, 15.38, 30.3])
+    def test_launch_speed_is_the_speed_at_launch(self, fps):
+        res = _run_real(_ballistic(fps), fps)
+        fb = [t for t in res["tracks"] if t["is_firebrand"]][0]
+        true_speed = math.hypot(0.5, 3.0)
+        # the track starts at the first frame the ember is detected, which can be up
+        # to one frame after the launch, by when gravity has taken off up to g/fps
+        slowest = math.hypot(0.5, 3.0 - G / fps)
+        assert slowest * 0.93 <= fb["launch_speed_mps"] <= true_speed * 1.07
+        assert fb["launch_fit"] == "quadratic"
+
+
+class TestBoundedMemory:
+    def test_background_samples_stay_bounded_before_ignition(self):
+        from fta_track.params import Params
+        from fta_track.pipeline import detect_stream
+        p = Params(m_per_px=S)
+        res = detect_stream(_scene(400), (H, W), FPS, p, log=lambda m: None)
+        win = p.window_frames(FPS)
+        assert res["ignition_frame"] is None
+        assert res["max_samples_held"] <= win // (win // p.bg_samples) + 3
+
+
+class TestReviewRendering:
+    def test_a_one_pixel_ember_survives_downsampling(self):
+        from fta_track.review import _shrink
+        crop = np.full((800, 800), 30.0, dtype=np.float32)
+        crop[401, 399] = 650.0
+        scale = 192 / 800
+        tile = _shrink(crop, 192, 192, scale)
+        assert tile.max() == 650.0
+
+
+class TestColdSpace:
+    def test_short_recordings_use_the_absolute_floor(self):
+        from fta_track.classify import env_threshold
+        from fta_track.params import Params
+        p = Params()
+        assert env_threshold(300, 30.0, p) == pytest.approx(0.3)      # 3 s of 300 frames
+        assert env_threshold(18000, 30.0, p) == pytest.approx(0.05)   # 5 % wins in long records
