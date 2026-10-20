@@ -28,15 +28,17 @@ TRACK_COLS = [
     "track_id", "is_firebrand", "reject_reason", "n_det", "n_cold", "n_evidence", "max_contrast_c",
     "start_frame", "end_frame", "start_time_s", "end_time_s", "duration_s",
     "launch_x_px", "launch_y_px", "launch_x_m", "launch_y_m", "end_x_m", "end_y_m",
-    "displacement_m", "path_length_m", "straightness",
+    "displacement_m", "path_length_m", "turn_deg",
     "launch_speed_mps", "launch_dir_deg", "mean_speed_mps", "max_speed_mps", "vert_accel_mps2",
     "peak_c", "mean_c", "cooling_c_per_s", "mean_area_px", "area_jump", "edge_grad",
-    "launch_t_s", "launch_fit",
+    "launch_t_s", "launch_fit", "launch_span_s",
 ]
 POINT_COLS = ["track_id", "is_firebrand", "frame", "time_s", "x_px", "y_px", "x_m", "y_m",
               "vx_mps", "vy_mps", "speed_mps", "max_c", "mean_c", "contrast_c", "edge_grad", "cold", "area_px"]
 DET_COLS = ["frame", "time_s", "track_id", "x_px", "y_px", "bbox_x", "bbox_y", "bbox_w", "bbox_h",
             "area_px", "max_c", "mean_c", "median_c", "bg_c", "bg_t_c", "edge_grad", "excess_c_px"]
+# Parameters that set the pixel scale: always taken from the run, even with --from-defaults.
+SCALE_PARAMS = ("m_per_px", "lens_hfov_deg")
 # Parameters used by the detection pass; changing any of them needs a new `run`.
 DETECTION_PARAMS = ("hot_thresh_c", "ignition_min_px", "min_area_px", "max_area_px", "ring_px",
                     "bg_samples", "persist_window_s", "persist_frac", "persist_dilate_px")
@@ -67,15 +69,51 @@ def code_version() -> str:
         return "unknown"
 
 
-def _write_tables(out_dir: str, res: Dict, fps: float, width: int, height: int, label: str) -> None:
+class _Staged:
+    """Write each output to a temporary name, then move them all into place at once.
+
+    A retrack reads detections.csv.gz and rewrites it; writing it in place would leave
+    a truncated file, the only copy of the detection pass, if the job were interrupted.
+    Every file is complete before any is replaced, and summary.json is replaced last.
+    """
+
+    def __init__(self, out_dir: str):
+        self.out_dir = out_dir
+        self.pending: List[tuple] = []
+
+    def path(self, name: str) -> str:
+        root, ext = os.path.splitext(name)
+        if ext == ".gz":
+            root, ext2 = os.path.splitext(root)
+            ext = ext2 + ext
+        tmp = os.path.join(self.out_dir, f"{root}.tmp-{os.getpid()}{ext}")
+        self.pending.append((tmp, os.path.join(self.out_dir, name)))
+        return tmp
+
+    def commit(self) -> None:
+        last = [x for x in self.pending if os.path.basename(x[1]) == "summary.json"]
+        for tmp, final in [x for x in self.pending if x not in last] + last:
+            os.replace(tmp, final)
+        self.pending = []
+
+    def abort(self) -> None:
+        for tmp, _ in self.pending:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        self.pending = []
+
+
+def _write_tables(out_dir: str, res: Dict, fps: float, width: int, height: int, label: str,
+                  st: Optional[_Staged] = None) -> None:
     tracks = res["tracks"]
-    with open(os.path.join(out_dir, "tracks.csv"), "w", newline="") as fh:
+    st = st or _Staged(out_dir)
+    with open(st.path("tracks.csv"), "w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(TRACK_COLS)
         for t in tracks:
             w.writerow([_fmt(t[c]) for c in TRACK_COLS])
 
-    with gzip.open(os.path.join(out_dir, "track_points.csv.gz"), "wt", newline="") as fh:
+    with gzip.open(st.path("track_points.csv.gz"), "wt", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(POINT_COLS)
         for t in tracks:
@@ -87,7 +125,7 @@ def _write_tables(out_dir: str, res: Dict, fps: float, width: int, height: int, 
                             _fmt(s["max_c"][k], 2), _fmt(s["mean_c"][k], 2), _fmt(s["contrast"][k], 2),
                             _fmt(s["edge_grad"][k], 2), _fmt(bool(s["cold"][k])), int(s["area"][k])])
 
-    with gzip.open(os.path.join(out_dir, "detections.csv.gz"), "wt", newline="") as fh:
+    with gzip.open(st.path("detections.csv.gz"), "wt", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(DET_COLS)
         for d in res["detections"]:
@@ -112,7 +150,7 @@ def _write_tables(out_dir: str, res: Dict, fps: float, width: int, height: int, 
         x, y, bw, bh = d["bbox"]
         anns.append({"id": len(anns) + 1, "image_id": seen[fr], "category_id": 1,
                      "bbox": [x, y, bw, bh], "area": d["area"], "iscrowd": 0, "track_id": d["track_id"]})
-    with open(os.path.join(out_dir, "labels_coco.json"), "w") as fh:
+    with open(st.path("labels_coco.json"), "w") as fh:
         json.dump({"info": {"label": label, "fps": fps, "width": width, "height": height,
                             "frame_index": "0-based frame of the Level 1.1 NetCDF",
                             "file_name": "<label with / as __>/frame_<6-digit frame>.png, for extracted frames",
@@ -148,21 +186,37 @@ def _track_summary(res: Dict, p) -> Dict:
 
 def write_outputs(out_dir: str, res: Dict, rec, p, label: str = "",
                   start: int = 0, stop: Optional[int] = None) -> None:
-    _write_tables(out_dir, res, rec.fps, rec.width, rec.height, label or rec.path)
+    st = _Staged(out_dir)
+    try:
+        _write_tables(out_dir, res, rec.fps, rec.width, rec.height, label or rec.path, st)
+        hf = res["hot_frac"].astype(np.float16)
+        np.savez_compressed(st.path("hot_fraction.npz"), hot_frac=hf)
+        pic = cv2.applyColorMap((np.clip(hf.astype(np.float32) / 0.5, 0, 1) * 255).astype(np.uint8),
+                                cv2.COLORMAP_VIRIDIS)
+        cv2.imwrite(st.path("hot_fraction.png"), pic)
+        _write_summary(st, _run_summary(res, rec, p, label, start, stop))
+        st.commit()
+    except BaseException:
+        st.abort()
+        raise
 
-    hf = res["hot_frac"].astype(np.float16)
-    np.savez_compressed(os.path.join(out_dir, "hot_fraction.npz"), hot_frac=hf)
-    pic = cv2.applyColorMap((np.clip(hf.astype(np.float32) / 0.5, 0, 1) * 255).astype(np.uint8), cv2.COLORMAP_VIRIDIS)
-    cv2.imwrite(os.path.join(out_dir, "hot_fraction.png"), pic)
+
+def _write_summary(st: _Staged, summary: Dict) -> None:
+    with open(st.path("summary.json"), "w") as fh:
+        json.dump(summary, fh, indent=2, default=str)
+
+
+def _run_summary(res: Dict, rec, p, label: str, start: int, stop: Optional[int]) -> Dict:
 
     ign = res["ignition_frame"]
     fps = rec.fps
+    stop_eff = rec.n_frames if stop is None else min(stop, rec.n_frames)
     summary = {
         "label": label,
         "source_file": rec.path,
         "n_frames": rec.n_frames,
         "frames_processed": res["frames_processed"],
-        "frame_range": [start, stop if stop is not None else rec.n_frames],
+        "frame_range": [start, stop_eff],
         "first_frame": res["first_frame"], "last_frame": res["last_frame"],
         "post_ignition_frames": res["n_post"],
         "fps": fps, "width": rec.width, "height": rec.height,
@@ -180,8 +234,8 @@ def write_outputs(out_dir: str, res: Dict, rec, p, label: str = "",
         "runtime_s": round(res["seconds"], 1),
         "nc_attrs": getattr(rec, "attrs", {}),
     }
-    with open(os.path.join(out_dir, "summary.json"), "w") as fh:
-        json.dump(summary, fh, indent=2, default=str)
+    summary["short_post_ignition"] = bool(ign is not None and res["n_post"] < p.env_min_s * fps)
+    return summary
 
 
 def resolve_retrack_params(out_dir: str, overrides: Dict, from_defaults: bool = False):
@@ -199,7 +253,16 @@ def resolve_retrack_params(out_dir: str, overrides: Dict, from_defaults: bool = 
     with open(os.path.join(out_dir, "summary.json")) as fh:
         summary = json.load(fh)
     known = {f.name for f in fields(Params)}
-    recorded = {k: v for k, v in summary.get("params", {}).items() if k in known}
+    raw = summary.get("params", {})
+    recorded = {k: v for k, v in raw.items() if k in known}
+    dropped = sorted(set(raw) - known)
+    missing = sorted(known - set(raw))
+    if not from_defaults and (dropped or missing or "params_hash" not in summary):
+        raise ValueError(
+            f"{out_dir}: made by an older version of the code (parameters no longer used: "
+            f"{', '.join(dropped) or 'none'}; parameters it does not record: {', '.join(missing) or 'none'}). "
+            f"A plain retrack would mix the run's values with today's defaults. Use --from-defaults, "
+            f"restating any override the run was made with under its current name.")
     for k in DETECTION_PARAMS:
         if k not in recorded:
             raise ValueError(f"{out_dir}: summary.json does not record {k}; re-run `run`")
@@ -209,8 +272,9 @@ def resolve_retrack_params(out_dir: str, overrides: Dict, from_defaults: bool = 
                          f"re-run `run` to change them")
     if from_defaults:
         base = {**Params().to_dict(), **{k: recorded[k] for k in DETECTION_PARAMS}}
-        if "m_per_px" in recorded:
-            base["m_per_px"] = recorded["m_per_px"]       # a scale override is not a tracking default
+        for k in SCALE_PARAMS:                              # a scale override is not a tracking default
+            if k in recorded:
+                base[k] = recorded[k]
     else:
         base = recorded
     return Params(**{**base, **overrides}), summary
@@ -256,10 +320,20 @@ def retrack(out_dir: str, overrides: Optional[Dict] = None, from_defaults: bool 
         tracks, dv = track_classify(dets_by_frame, (ign, summary["last_frame"]), fps, s, hot_frac, n_post, p)
     res = {"tracks": tracks, "detections": [d for c in sorted(dets_by_frame) for d in dets_by_frame[c]],
            "derived": dv}
-    _write_tables(out_dir, res, fps, summary["width"], summary["height"], summary.get("label") or summary["source_file"])
+    for stale in ("gate_new_px", "cold_space_share"):       # superseded by derived.*
+        summary.pop(stale, None)
     summary.update(_track_summary(res, p))
     summary["m_per_px"] = s
+    summary["post_ignition_frames"] = n_post
+    summary["short_post_ignition"] = bool(ign is not None and n_post < p.env_min_s * fps)
     summary["retracked"] = True
-    with open(os.path.join(out_dir, "summary.json"), "w") as fh:
-        json.dump(summary, fh, indent=2, default=str)
+    st = _Staged(out_dir)
+    try:
+        _write_tables(out_dir, res, fps, summary["width"], summary["height"],
+                      summary.get("label") or summary["source_file"], st)
+        _write_summary(st, summary)
+        st.commit()
+    except BaseException:
+        st.abort()
+        raise
     return res

@@ -121,13 +121,22 @@ def _factors(label: str) -> dict:
         elif len(parts) == 5:
             row["run"] = parts[4]
     elif tree == "fibrous_bark":
-        # fibrous_bark/<species>/<rating>/<HRR>/<section>
+        # fibrous_bark/<species>/<rating>/<HRR>/<section>; a trailing letter (S16a, S16b)
+        # marks a continuation segment of one recording, not a separate experiment
         row.update(zip(["species", "hazard_rating", "hrr", "section"], parts[1:5]))
+        sec = row.get("section", "")
+        if sec[-1:].isalpha() and sec[:-1][-1:].isdigit():
+            row["section"], row["segment"] = sec[:-1], sec[-1]
     elif tree == "candlebark":
         # candlebark/<species>/<HRR>/<shape>/<length>/<run>
         row.update(zip(["species", "hrr", "shape", "length", "run"], parts[1:6]))
     elif len(parts) > 1:
-        row["run"] = parts[-1]
+        run = parts[-1]
+        if run[-1:].isalpha() and run[:-1][-1:].isdigit():      # preliminary 21a / 21b
+            run, row["segment"] = run[:-1], run[-1]
+        row["run"] = run
+    # one experiment = the label without its segment letter; sum segments over it
+    row["experiment"] = label[:-1] if row.get("segment") else label
     return row
 
 
@@ -140,12 +149,16 @@ def cmd_aggregate(a) -> int:
             s = json.load(fh)
         label = s.get("label") or os.path.relpath(root, a.results)
         row = {"recording": label, **_factors(label)}
-        f0, f1 = (s.get("frame_range") or [0, s["n_frames"]])[:2]
+        frames = s.get("frames_processed")
+        if frames is None:
+            f0, f1 = (s.get("frame_range") or [0, s["n_frames"]])[:2]
+            frames = min(f1, s["n_frames"]) - f0
         row.update({
             "firebrand_count": s["firebrand_count"],
             "confirmed_tracks": s["confirmed_tracks"],
             "ignition_time_s": s["ignition_time_s"],
-            "duration_s": (f1 - f0) / s["fps"] if s.get("fps") else None,
+            "duration_s": frames / s["fps"] if s.get("fps") else None,
+            "short_post_ignition": s.get("short_post_ignition"),
             "fps": s["fps"],
             "m_per_px": s["m_per_px"],
             "params_hash": s.get("params_hash"),
@@ -157,35 +170,45 @@ def cmd_aggregate(a) -> int:
         rows.append(row)
     if not rows:
         sys.exit(f"no summary.json found under {a.results}")
-    cols = ["recording", "fuel_type", "species", "hazard_rating", "hrr", "structure", "class", "section",
-            "shape", "length", "run", "firebrand_count", "confirmed_tracks", "ignition_time_s",
-            "duration_s", "fps", "m_per_px", "params_hash", "detection_params_hash",
-            "detection_code_version", "tracking_code_version", "retracked"]
+    cols = ["recording", "experiment", "fuel_type", "species", "hazard_rating", "hrr", "structure", "class",
+            "section", "segment", "shape", "length", "run", "firebrand_count", "confirmed_tracks",
+            "ignition_time_s", "duration_s", "short_post_ignition", "fps", "m_per_px", "params_hash",
+            "detection_params_hash", "detection_code_version", "tracking_code_version", "retracked"]
     rows.sort(key=lambda r: r["recording"])
     with open(a.out, "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=cols, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
     print(f"{len(rows)} recordings -> {a.out}")
-    hashes = sorted({str(r["params_hash"]) for r in rows})
-    if len(hashes) > 1:
-        print(f"WARNING: the table mixes {len(hashes)} parameter sets ({', '.join(hashes)}); "
-              f"counts from different sets are not comparable", file=sys.stderr)
+    for key, what in (("params_hash", "parameter sets"), ("detection_code_version", "detection code versions"),
+                      ("tracking_code_version", "tracking code versions")):
+        vals = sorted({str(r.get(key)) for r in rows})
+        if len(vals) > 1:
+            print(f"WARNING: the table mixes {len(vals)} {what} ({', '.join(vals)}); "
+                  f"counts from different ones are not comparable", file=sys.stderr)
+    segs = sum(1 for r in rows if r.get("segment"))
+    if segs:
+        print(f"note: {segs} rows are continuation segments; sum firebrand_count and duration_s "
+              f"over 'experiment' to get one row per experiment", file=sys.stderr)
     return 0
 
 
 def cmd_review_make(a) -> int:
     from fta_track.review import make_batch
     n = make_batch(a.results, a.nc, a.batch, a.label, n_firebrand=a.n_firebrand,
-                   n_rejected=a.n_rejected, seed=a.seed)
-    print(f"{n} clips from {a.label} -> {a.batch}/index.html")
+                   n_rejected=a.n_rejected, min_det=a.min_det, seed=a.seed)
+    print(f"{n} clips from {a.label} -> {a.batch}/public/index.html")
     return 0
 
 
 def cmd_review_merge(a) -> int:
     from fta_track.review import merge_batches
-    n = merge_batches(a.out, a.parts)
-    print(f"{n} clips from {len(a.parts)} batch(es) -> {a.out}/index.html")
+    try:
+        n = merge_batches(a.out, a.parts)
+    except ValueError as e:
+        sys.exit(str(e))
+    print(f"{n} clips from {len(a.parts)} batch(es) -> {a.out}/public/index.html")
+    print(f"hand the reviewer {a.out}/public only: {a.out}/manifest.json is the answer key")
     return 0
 
 
@@ -203,7 +226,12 @@ def cmd_review_score(a) -> int:
     print(f"sample: counted firebrands judged real {p['yes']}/{p['yes'] + p['no']} (unsure {p['unsure']}); "
           f"rejected tracks judged real {r['yes']}/{r['yes'] + r['no']} (unsure {r['unsure']})")
     print(f"weighted: precision {w['estimated_precision']}, recall among confirmed tracks "
-          f"{w['estimated_recall_among_confirmed_tracks']}")
+          f"{w['estimated_recall_among_confirmed_tracks']} "
+          f"({len(w['recordings_included'])} recording(s) fully covered)")
+    if w["recordings_excluded"]:
+        print(f"WARNING: {len(w['recordings_excluded'])} recording(s) left out of the weighted estimates "
+              f"because some sampled stratum has no yes/no verdict yet: "
+              f"{', '.join(sorted(w['recordings_excluded']))}", file=sys.stderr)
     print(f"-> {a.batch}/scores.json")
     return 0
 
@@ -252,6 +280,8 @@ def main(argv=None) -> int:
     m.add_argument("--n-firebrand", type=int, default=15, help="tracks counted as firebrands to sample")
     m.add_argument("--n-rejected", type=int, default=12,
                    help="rejected tracks to sample, spread over rejection reasons (3+ detections, so too_short is included)")
+    m.add_argument("--min-det", type=int, default=None,
+                   help="smallest track to sample (default: the run's own confirmation threshold)")
     m.add_argument("--seed", type=int, default=0)
     m.set_defaults(func=cmd_review_make)
 

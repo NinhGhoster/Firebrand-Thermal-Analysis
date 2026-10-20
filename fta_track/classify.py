@@ -8,20 +8,20 @@ seen in *cold space* (where the long-term hot fraction is below `env_frac`), and
 there it is clearly hotter than the air around it.
 
 A confirmed track is counted as a firebrand when it
-  1. has detections spanning at least `min_track_span_s` (converted to a number
-     of detections for the recording's frame rate, at least 3),
+  1. has at least 3 detections spanning at least `min_track_span_s` (measured
+     from the detection times, so a coast in between counts as time),
   2. has enough detections (`min_cold_s`, converted per frame rate) in cold space whose contrast
      (blob peak minus what those pixels usually read: the temporal background,
      or the surrounding ring for older outputs without it) is >= `min_contrast_c`
      and whose edge gradient is >= `min_edge_grad` (a solid object's hard edge,
      not a parcel of hot gas fading into the plume),
   3. moves a net `min_disp_m`, and
-  4. once it has motion over `straight_min_s` (at least 3 vectors), is locally
-     straight: the median, over every window of that duration, of net / path
-     length is at least `min_straightness`. Local, because a lofted firebrand
-     flies an arc (it rises and falls back, so its whole-track net/path can be
-     0.3) while being nearly straight over any 0.1-0.2 s; a track hopping between
-     flicker blobs zigzags at the frame scale. Shorter tracks are not scored.
+  4. once it spans `straight_min_s`, does not move erratically: the median
+     turning angle between successive `straight_dt_s` steps is at most
+     `max_turn_deg`. A lofted firebrand flies an arc and turns little per step;
+     a centroid hopping between flicker blobs turns ~90 degrees per step. (A
+     whole-track net/path would reject the arcs; a net/path over 3-step windows
+     passes most random wandering.)
 The first failing test is recorded as `reject_reason`.
 """
 
@@ -34,7 +34,8 @@ import cv2
 import numpy as np
 
 from .params import Params
-from .units import launch_velocity, lsq_slope, to_metres, velocity_series, vertical_acceleration
+from .units import (launch_velocity, lsq_slope, to_metres, turning_angle_deg, velocity_series,
+                    vertical_acceleration)
 
 
 def env_threshold(n_post: int, fps: float, p: Params) -> float:
@@ -47,7 +48,9 @@ def env_threshold(n_post: int, fps: float, p: Params) -> float:
     """
     if n_post <= 0:
         return p.env_frac
-    return max(p.env_frac, p.env_min_s * fps / n_post)
+    # capped at persist_frac: above it, the flickering flame zone would start to count
+    # as cold space, and past 1.0 nothing would be rig at all in a very short recording
+    return min(max(p.env_frac, p.env_min_s * fps / n_post), p.persist_frac)
 
 
 def cold_space(hot_frac: np.ndarray, n_post: int, fps: float, p: Params) -> np.ndarray:
@@ -57,20 +60,6 @@ def cold_space(hot_frac: np.ndarray, n_post: int, fps: float, p: Params) -> np.n
         k = 2 * p.env_dilate_px + 1
         env = cv2.dilate(env, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
     return ~env.astype(bool)
-
-
-def _local_straightness(X: np.ndarray, Y: np.ndarray, vectors: int):
-    """Median over sliding windows of `vectors` steps of net / path; None if too short."""
-    n = len(X)
-    if n - 1 < vectors:
-        return None
-    vals = []
-    for a in range(0, n - vectors):
-        b = a + vectors
-        path = float(np.hypot(np.diff(X[a:b + 1]), np.diff(Y[a:b + 1])).sum())
-        if path > 0:
-            vals.append(math.hypot(X[b] - X[a], Y[b] - Y[a]) / path)
-    return float(np.median(vals)) if vals else None
 
 
 def track_features(points: List[tuple], fps: float, s: float, cold: np.ndarray, p: Params, dv: Dict) -> Dict:
@@ -101,9 +90,9 @@ def track_features(points: List[tuple], fps: float, s: float, cold: np.ndarray, 
     steps = np.hypot(np.diff(X), np.diff(Y))
     path = float(steps.sum())
     disp = float(math.hypot(X[-1] - X[0], Y[-1] - Y[0]))
-    straight = _local_straightness(X, Y, dv["straight_min_vectors"])
+    turn = turning_angle_deg(t, X, Y, p.straight_dt_s, p.straight_min_s)
 
-    lvx, lvy, lt, lmethod = launch_velocity(t, X, Y, dv["lsq_points"])
+    lvx, lvy, lt, lmethod, lspan = launch_velocity(t, X, Y, p.launch_fit_s)
     cool = lsq_slope(t, tmax) if n >= 4 and t[-1] > t[0] else float("nan")
     finite = np.isfinite(speed)
     return {
@@ -118,10 +107,10 @@ def track_features(points: List[tuple], fps: float, s: float, cold: np.ndarray, 
         "launch_x_m": float(X[0]), "launch_y_m": float(Y[0]),
         "end_x_m": float(X[-1]), "end_y_m": float(Y[-1]),
         "displacement_m": disp, "path_length_m": path,
-        "straightness": straight,
+        "turn_deg": turn,
         "launch_speed_mps": float(math.hypot(lvx, lvy)) if np.isfinite(lvx) else float("nan"),
         "launch_dir_deg": float(math.degrees(math.atan2(lvy, lvx))) if np.isfinite(lvx) else float("nan"),
-        "launch_t_s": lt, "launch_fit": lmethod,
+        "launch_t_s": lt, "launch_fit": lmethod, "launch_span_s": lspan,
         "mean_speed_mps": float(np.nanmean(speed)) if finite.any() else float("nan"),
         "max_speed_mps": float(np.nanmax(speed)) if finite.any() else float("nan"),
         "vert_accel_mps2": vertical_acceleration(t, Y),
@@ -139,7 +128,7 @@ def track_features(points: List[tuple], fps: float, s: float, cold: np.ndarray, 
 
 def classify(f: Dict, p: Params, dv: Dict) -> str:
     """Return '' for a firebrand, otherwise the first failing test."""
-    if f["n_det"] < dv["min_track_dets"]:
+    if f["n_det"] < 3 or f["duration_s"] < p.min_track_span_s - 1e-9:
         return "too_short"
     if f["n_cold"] < dv["min_cold_dets"]:
         return "not_in_cold_space"
@@ -147,6 +136,6 @@ def classify(f: Dict, p: Params, dv: Dict) -> str:
         return "low_contrast"
     if f["displacement_m"] < p.min_disp_m:
         return "too_little_displacement"
-    if f["straightness"] is not None and f["straightness"] < p.min_straightness:
-        return "not_straight"
+    if f["turn_deg"] is not None and f["turn_deg"] > p.max_turn_deg:
+        return "erratic"
     return ""

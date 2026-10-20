@@ -13,9 +13,17 @@ d^2 = nu' S^-1 nu with S = H P H' + R, is within the chi-square gate (or within
 P grows on every predict, so the region widens by itself while a track coasts
 through missed frames and narrows again once it is re-acquired.
 
-The process noise is an acceleration in pixels per frame squared, converted
-by the caller from m/s^2, so the same physical trajectory is tracked the same
-way at 10 fps and at 31.25 fps.
+Motion model: continuous white-noise acceleration (CWNA). Per axis, the process
+noise over one frame is Q = q [[1/3, 1/2], [1/2, 1]] with q the acceleration
+power spectral density in px^2/frame^3 (converted by the caller from m^2/s^3).
+Unlike a fixed acceleration per frame, its uncertainty grows the same way per
+second at any frame rate: a coast of 0.18 s opens the same physical search
+region at 10, 15 and 30 fps.
+
+Assignment is a two-stage cascade. Established tracks (>= 2 detections) are
+matched first, on the Mahalanobis cost; only the detections they leave are
+offered to one-detection tracks, on the distance cost. A one-frame flicker blob
+can therefore never take a detection from an established firebrand.
 
 Deliberately avoids the defects found in firebrand-vision's tracker:
   - a confirmed track that misses frames keeps coasting and can be re-associated;
@@ -35,7 +43,8 @@ from scipy.optimize import linear_sum_assignment
 
 _F = np.array([[1, 0, 1, 0], [0, 1, 0, 1], [0, 0, 1, 0], [0, 0, 0, 1]], dtype=float)
 _H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]], dtype=float)
-_G = np.array([[0.5, 0], [0, 0.5], [1, 0], [0, 1]], dtype=float)
+# CWNA process noise for dt = 1 frame, per unit spectral density (state x, y, vx, vy)
+_QC = np.array([[1 / 3, 0, 1 / 2, 0], [0, 1 / 3, 0, 1 / 2], [1 / 2, 0, 1, 0], [0, 1 / 2, 0, 1]], dtype=float)
 _BIG = 1e9
 
 
@@ -43,7 +52,7 @@ class _Track:
     def __init__(self, frame: int, det: Dict, q: float, r: float, v0_px: float):
         self.x = np.array([det["cx"], det["cy"], 0.0, 0.0])
         self.P = np.diag([r * r, r * r, v0_px * v0_px, v0_px * v0_px])
-        self.Q = (q * q) * (_G @ _G.T)
+        self.Q = q * _QC                      # q: acceleration spectral density, px^2/frame^3
         self.R = (r * r) * np.eye(2)
         self.points: List[tuple] = [(frame, det)]
         self.area = float(det["area"])
@@ -87,27 +96,38 @@ class Tracker:
         self.finished: List[_Track] = []
         self._next_id = 1
 
-    def _costs(self, dets: List[Dict]) -> np.ndarray:
-        """Normalised cost (<= 1 inside the gate, _BIG outside) for every track/detection pair."""
-        obs = np.array([[d["cx"], d["cy"]] for d in dets])
-        da = np.array([d["area"] for d in dets], dtype=float) + 2.0
-        cost = np.full((len(self.live), len(dets)), _BIG)
-        for ti, t in enumerate(self.live):
-            ratio = np.maximum(t.area + 2.0, da) / np.minimum(t.area + 2.0, da)
-            size_ok = ratio <= self.area_ratio_max
-            if t.hits < 2:
-                dist = np.linalg.norm(obs - t.x[:2], axis=1)
-                ok = size_ok & (dist <= self.gate_new)
-                c = (dist / self.gate_new) ** 2
-            else:
-                nu = obs - (_H @ t.x)
-                S = _H @ t.P @ _H.T + t.R
-                d2 = np.einsum("ij,jk,ik->i", nu, np.linalg.inv(S), nu)
-                dist = np.linalg.norm(nu, axis=1)
-                ok = size_ok & ((d2 <= self.chi2) | (dist <= self.floor))
-                c = np.minimum(d2 / self.chi2, 1.0)
-            cost[ti] = np.where(ok, c, _BIG)
-        return cost
+    def _cost_row(self, t: _Track, obs: np.ndarray, da: np.ndarray) -> np.ndarray:
+        """Cost of linking track t to each detection; _BIG outside its gate."""
+        ratio = np.maximum(t.area + 2.0, da) / np.minimum(t.area + 2.0, da)
+        size_ok = ratio <= self.area_ratio_max
+        if t.hits < 2:
+            dist = np.linalg.norm(obs - t.x[:2], axis=1)
+            ok = size_ok & (dist <= self.gate_new)
+            c = dist
+        else:
+            nu = obs - (_H @ t.x)
+            S = _H @ t.P @ _H.T + t.R
+            d2 = np.einsum("ij,jk,ik->i", nu, np.linalg.inv(S), nu)
+            dist = np.linalg.norm(nu, axis=1)
+            ok = size_ok & ((d2 <= self.chi2) | (dist <= self.floor))
+            c = d2
+        return np.where(ok, c, _BIG)
+
+    def _assign(self, frame: int, track_idx: List[int], dets: List[Dict], free: List[int],
+                matched_t: set, matched_d: set) -> None:
+        if not track_idx or not free:
+            return
+        obs = np.array([[dets[i]["cx"], dets[i]["cy"]] for i in free])
+        da = np.array([dets[i]["area"] for i in free], dtype=float) + 2.0
+        cost = np.vstack([self._cost_row(self.live[ti], obs, da) for ti in track_idx])
+        rows, cols = linear_sum_assignment(cost)
+        for r, c in zip(rows, cols):
+            if cost[r, c] >= _BIG:
+                continue
+            ti, di = track_idx[r], free[c]
+            self.live[ti].update(frame, dets[di])
+            matched_t.add(ti)
+            matched_d.add(di)
 
     def step(self, frame: int, dets: List[Dict]) -> None:
         for t in self.live:
@@ -115,14 +135,11 @@ class Tracker:
 
         matched_t, matched_d = set(), set()
         if self.live and dets:
-            cost = self._costs(dets)
-            rows, cols = linear_sum_assignment(cost)
-            for ti, di in zip(rows, cols):
-                if cost[ti, di] >= _BIG:
-                    continue
-                self.live[ti].update(frame, dets[di])
-                matched_t.add(ti)
-                matched_d.add(di)
+            established = [i for i, t in enumerate(self.live) if t.hits >= 2]
+            newborn = [i for i, t in enumerate(self.live) if t.hits < 2]
+            self._assign(frame, established, dets, list(range(len(dets))), matched_t, matched_d)
+            left = [i for i in range(len(dets)) if i not in matched_d]
+            self._assign(frame, newborn, dets, left, matched_t, matched_d)
 
         survivors: List[_Track] = []
         for ti, t in enumerate(self.live):

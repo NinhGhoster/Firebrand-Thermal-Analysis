@@ -81,12 +81,12 @@ def test_review_page_is_blind_and_scores(recording, tmp_path):
     batch = tmp_path / "batch"
     n = make_batch(str(res), recording, str(batch), "branchlet/X/150kW/Twigs/1")
     assert n >= 1
-    html = open(batch / "index.html").read()
+    html = open(batch / "public" / "index.html").read()
     for leak in ("pipeline_firebrand", "reject_reason", "is_firebrand", "features", "n_evidence", "point_data"):
         assert leak not in html
     man = json.load(open(batch / "manifest.json"))
     for c in man["clips"]:
-        assert os.path.exists(batch / "clips" / (c["id"] + ".png"))
+        assert os.path.exists(batch / "public" / "clips" / (c["id"] + ".png"))
         assert any(m is not None for m in c["marks"])
         assert len(c["point_data"]) == c["features"]["n_det"]
     for c in man["clips"]:                       # ids are opaque random tokens, not label__track
@@ -122,7 +122,7 @@ def test_weighted_estimates_use_stratum_sizes(tmp_path):
     # two strata in one recording: 100 counted tracks (sample 2: both real) and
     # 1000 rejected too_short tracks (sample 2: one real)
     batch = tmp_path / "b"
-    os.makedirs(batch / "clips")
+    os.makedirs(batch / "public" / "clips")
     clips = []
     for i, (stratum, pop, fbflag, reason) in enumerate([("counted", 100, True, ""), ("counted", 100, True, ""),
                                                         ("rejected:too_short", 1000, False, "too_short"),
@@ -199,7 +199,7 @@ def test_review_merge_combines_batches(recording, tmp_path):
     assert FTA_CLI.main(["review-merge", str(tmp_path / "all"), str(a), str(b)]) == 0
     man = json.load(open(tmp_path / "all" / "manifest.json"))
     assert len(man["clips"]) == na + nb
-    assert all(os.path.exists(tmp_path / "all" / "clips" / (c["id"] + ".png")) for c in man["clips"])
+    assert all(os.path.exists(tmp_path / "all" / "public" / "clips" / (c["id"] + ".png")) for c in man["clips"])
 
 
 def test_retrack_from_defaults_resets_tracking_but_keeps_detection(recording, tmp_path):
@@ -212,3 +212,123 @@ def test_retrack_from_defaults_resets_tracking_but_keeps_detection(recording, tm
     assert s["params"]["persist_frac"] == 0.2             # detection parameter kept from the run
     assert s["params"]["m_per_px"] == 0.002               # scale override kept
     assert s["firebrand_count"] == 1
+
+
+def test_aggregate_joins_continuation_segments(recording, tmp_path):
+    for lab in ("fibrous_bark/E_radiata/High/150kW/S16a", "fibrous_bark/E_radiata/High/150kW/S16b",
+                "fibrous_bark/E_radiata/High/150kW/S4"):
+        FTA_CLI.main(["run", recording, "--out", str(tmp_path / "results" / lab), "--label", lab,
+                      "--set", "m_per_px=0.002", "--stop", "99999"])
+    table = tmp_path / "counts.csv"
+    FTA_CLI.main(["aggregate", str(tmp_path / "results"), "--out", str(table)])
+    rows = {r["recording"]: r for r in csv.DictReader(open(table))}
+    a, b = rows["fibrous_bark/E_radiata/High/150kW/S16a"], rows["fibrous_bark/E_radiata/High/150kW/S16b"]
+    assert a["experiment"] == b["experiment"] == "fibrous_bark/E_radiata/High/150kW/S16"
+    assert (a["section"], a["segment"], b["segment"]) == ("S16", "a", "b")
+    assert rows["fibrous_bark/E_radiata/High/150kW/S4"]["segment"] == ""
+    assert float(a["duration_s"]) == pytest.approx(150 / 30.0)   # frames read, not the --stop asked for
+
+
+def test_plain_retrack_of_an_old_summary_is_refused(recording, tmp_path):
+    out = tmp_path / "res"
+    FTA_CLI.main(["run", recording, "--out", str(out), "--set", "m_per_px=0.002"])
+    s = json.load(open(out / "summary.json"))
+    s.pop("params_hash")
+    s["params"]["min_hits"] = 3                      # a field this version no longer has
+    json.dump(s, open(out / "summary.json", "w"))
+    with pytest.raises(SystemExit):
+        FTA_CLI.main(["retrack", str(out)])
+    assert FTA_CLI.main(["retrack", str(out), "--from-defaults"]) == 0
+
+
+def test_an_interrupted_retrack_leaves_the_detections_intact(recording, tmp_path, monkeypatch):
+    out = tmp_path / "res"
+    FTA_CLI.main(["run", recording, "--out", str(out), "--set", "m_per_px=0.002"])
+    before = {n: open(out / n, "rb").read() for n in ("detections.csv.gz", "summary.json", "tracks.csv")}
+    import fta_track.export as ex
+    def boom(*a, **k):
+        raise KeyboardInterrupt
+    monkeypatch.setattr(ex, "_write_summary", boom)
+    with pytest.raises(KeyboardInterrupt):
+        ex.retrack(str(out), {"min_contrast_c": 90.0})
+    for n, data in before.items():
+        assert open(out / n, "rb").read() == data, f"{n} changed by an interrupted retrack"
+    assert not [n for n in os.listdir(out) if ".tmp-" in n], "temporary files left behind"
+
+
+def _two_label_batch(recording, tmp_path):
+    res = tmp_path / "res"
+    FTA_CLI.main(["run", recording, "--out", str(res), "--set", "m_per_px=0.002"])
+    a, b = tmp_path / "a", tmp_path / "b"
+    make_batch(str(res), recording, str(a), "branchlet/X/150kW/Twigs/1")
+    make_batch(str(res), recording, str(b), "branchlet/Y/150kW/Twigs/2")
+    return res, a, b
+
+
+def test_the_public_folder_holds_no_answer_key_and_no_telling_timestamps(recording, tmp_path):
+    from fta_track.review import merge_batches
+    res, a, b = _two_label_batch(recording, tmp_path)
+    out = tmp_path / "all"
+    merge_batches(str(out), [str(a), str(b)])
+    pub = out / "public"
+    names = set(os.listdir(pub))
+    assert names == {"index.html", "clips"}
+    assert os.path.exists(out / "manifest.json")
+    mtimes = {os.stat(pub / "clips" / n).st_mtime for n in os.listdir(pub / "clips")}
+    assert len(mtimes) == 1, "clip timestamps vary, so file order could reveal the strata"
+
+
+def test_re_merging_keeps_the_nonce_and_refuses_duplicates(recording, tmp_path):
+    from fta_track.review import merge_batches
+    res, a, b = _two_label_batch(recording, tmp_path)
+    out = tmp_path / "all"
+    merge_batches(str(out), [str(a), str(b)])
+    n1 = json.load(open(out / "manifest.json"))["nonce"]
+    merge_batches(str(out), [str(a), str(b)])
+    assert json.load(open(out / "manifest.json"))["nonce"] == n1
+    c = tmp_path / "c"
+    make_batch(str(res), recording, str(c), "branchlet/X/150kW/Twigs/1")      # same recording again
+    with pytest.raises(ValueError):
+        merge_batches(str(tmp_path / "dup"), [str(a), str(c)])
+
+
+def test_merge_refuses_old_style_clip_ids(recording, tmp_path):
+    from fta_track.review import merge_batches
+    res, a, b = _two_label_batch(recording, tmp_path)
+    man = json.load(open(a / "manifest.json"))
+    man["clips"][0]["id"] = "branchlet__X__150kW__Twigs__1__3"
+    json.dump(man, open(a / "manifest.json", "w"))
+    with pytest.raises(ValueError):
+        merge_batches(str(tmp_path / "all"), [str(a), str(b)])
+
+
+def test_a_failed_re_render_leaves_the_batch_intact(recording, tmp_path):
+    res, a, b = _two_label_batch(recording, tmp_path)
+    before = json.load(open(a / "manifest.json"))
+    with pytest.raises(Exception):
+        make_batch(str(res), str(tmp_path / "missing.nc"), str(a), "branchlet/X/150kW/Twigs/1")
+    after = json.load(open(a / "manifest.json"))
+    assert after["clips"] == before["clips"]
+    assert all(os.path.exists(a / "public" / "clips" / (c["id"] + ".png")) for c in after["clips"])
+
+
+def test_partial_coverage_is_left_out_of_the_weighted_recall(tmp_path):
+    # two recordings; B's counted stratum has only an 'unsure' verdict
+    batch = tmp_path / "b"
+    os.makedirs(batch / "public" / "clips")
+    spec = [("A", "counted", 20, True, "", "y"), ("A", "rejected:too_short", 50, False, "too_short", "n"),
+            ("B", "counted", 200, True, "", "u"), ("B", "rejected:too_short", 1000, False, "too_short", "y")]
+    clips, V = [], {}
+    for i, (lab, st, pop, fbf, reason, verdict) in enumerate(spec):
+        cid = f"{i:012x}"
+        clips.append({"id": cid, "label": lab, "track_id": i, "pipeline_firebrand": fbf, "reject_reason": reason,
+                      "stratum": st, "stratum_population": pop, "stratum_sampled": 1, "fps": 30.0,
+                      "frames": [0, 1], "marks": [None, None], "n_tiles": 2, "tile": 192, "cols": 12,
+                      "crop_px": [0, 0, 10, 10]})
+        V[cid] = verdict
+    json.dump({"nonce": "n", "clips": clips}, open(batch / "manifest.json", "w"))
+    vpath = tmp_path / "v.json"
+    json.dump({"nonce": "n", "verdicts": V}, open(vpath, "w"))
+    w = score(str(batch), str(vpath))["weighted"]
+    assert w["recordings_included"] == ["A"] and "B" in w["recordings_excluded"]
+    assert w["estimated_recall_among_confirmed_tracks"] == 1.0      # A alone: 20 real counted, 0 real rejected

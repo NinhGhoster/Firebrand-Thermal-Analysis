@@ -293,5 +293,123 @@ class TestColdSpace:
         from fta_track.classify import env_threshold
         from fta_track.params import Params
         p = Params()
-        assert env_threshold(300, 30.0, p) == pytest.approx(0.3)      # 3 s of 300 frames
+        assert env_threshold(1000, 30.0, p) == pytest.approx(0.09)    # 3 s of 1000 frames
+        assert env_threshold(300, 30.0, p) == pytest.approx(0.15)     # capped at persist_frac
         assert env_threshold(18000, 30.0, p) == pytest.approx(0.05)   # 5 % wins in long records
+
+
+def _flight(fps, x0, y0, v, life_s, drop=(), shift=None, extra=None, seed=5):
+    """One ember through open air (no sample in its path), plus a burning sample at the
+    bottom for ignition. v = (vx, vy_up) m/s under gravity. shift: frame -> (dx, dy) px
+    added to the ember's position; extra: frame -> list of (x, y) 3x3 blobs at 700 C."""
+    rng = np.random.default_rng(seed)
+    t_launch = 0.5
+    n = int(round((t_launch + life_s + 0.3) * fps))
+    pos = {}
+    for i in range(n):
+        f = np.full((HR, WR), 20.0, dtype=np.float32) + rng.normal(0, 0.2, (HR, WR)).astype(np.float32)
+        f[680:760, 400:600] = 600.0 + rng.normal(0, 30, (80, 200))
+        t = i / fps - t_launch
+        if 0 <= t <= life_s:
+            x = x0 + v[0] * t / SR
+            y = y0 - (v[1] * t - 0.5 * G * t * t) / SR
+            pos[i] = (x, y)
+            if i not in drop:
+                dx, dy = (shift or {}).get(i, (0, 0))
+                xi, yi = int(round(x + dx)), int(round(y + dy))
+                if 0 <= xi < WR - 3 and 0 <= yi < 660:
+                    f[yi:yi + 3, xi:xi + 3] = 800.0
+        for (bx, by) in (extra or {}).get(i, []):
+            f[int(by):int(by) + 3, int(bx):int(bx) + 3] = 700.0
+        yield i, f
+
+
+def _ember_frames(fps, x0, y0, v, life_s):
+    t_launch = 0.5
+    return [i for i in range(int(round((t_launch + life_s + 0.3) * fps)))
+            if 0 <= i / fps - t_launch <= life_s]
+
+
+class TestTrackerRateInvariance:
+    @pytest.mark.parametrize("v", [(0.5, 3.0), (1.5, 2.0), (2.5, 1.0), (1.0, 0.5)])
+    @pytest.mark.parametrize("gap_at", [0.12, 0.25])
+    def test_a_coast_inside_max_miss_is_bridged_at_30_fps(self, v, gap_at):
+        # 5 missed frames = 0.165 s < max_miss_s (0.18 s), at several points of an arc
+        fps = 30.3
+        frames = _ember_frames(fps, 150, 500, v, 0.6)
+        g0 = frames[0] + int(round(gap_at * fps))
+        drop = tuple(range(g0, g0 + 5))
+        res = _run_real(_flight(fps, 150, 500, v, 0.6, drop=drop), fps)
+        long = [t for t in res["tracks"] if t["n_det"] >= 4]
+        assert len(long) == 1, [(t["n_det"], t["start_frame"], t["end_frame"]) for t in res["tracks"]]
+
+    @pytest.mark.parametrize("fps", [10.0, 30.3])
+    def test_a_flicker_blob_cannot_take_an_established_track_detection(self, fps):
+        # The ember flies right at 2 m/s. In frame k a one-frame blob appears 19 px beyond
+        # where the ember will be in frame k+1; in frame k+1 the ember's centroid is 6 px
+        # off its path (inside its own gate), 13 px from the blob's newborn track.
+        v, life = (2.0, 2.0), 0.3 if fps > 20 else 0.6     # stays in view at both rates
+        frames = _ember_frames(fps, 100, 200, v, life)
+        k = frames[len(frames) // 2]
+        t1 = (k + 1) / fps - 0.5
+        x1 = 100 + v[0] * t1 / SR
+        y1 = 200 - (v[1] * t1 - 0.5 * G * t1 * t1) / SR
+        res = _run_real(_flight(fps, 100, 200, v, life, shift={k + 1: (6, 0)}, extra={k: [(x1 + 19, y1)]}), fps)
+        longest = max(res["tracks"], key=lambda t: t["n_det"])
+        assert longest["n_det"] == len(frames), [(t["n_det"], t["start_frame"]) for t in res["tracks"]]
+
+    def test_a_fast_ember_starts_a_track_at_10_fps(self):
+        # 3.5 m/s is 216 px/frame at 10 fps: beyond the old 200 px cap on the first link
+        res = _run_real(_flight(10.0, 60, 300, (3.5, 0.8), 0.4), 10.0)
+        assert any(t["n_det"] >= 4 for t in res["tracks"]), [(t["n_det"],) for t in res["tracks"]]
+
+
+class TestMotionStatistics:
+    @pytest.mark.parametrize("fps", [10.0, 15.38, 30.3])
+    def test_random_wandering_is_erratic_and_arcs_are_not(self, fps):
+        from fta_track.units import turning_angle_deg
+        rng = np.random.default_rng(11)
+        t = np.arange(int(1.0 * fps)) / fps
+        passed = 0
+        for _ in range(200):          # random-direction hops of 5-25 px, as a flicker-hopping centroid
+            steps = rng.uniform(5, 25, len(t) - 1) * SR
+            ang = rng.uniform(-np.pi, np.pi, len(t) - 1)
+            X = np.concatenate([[0], np.cumsum(steps * np.cos(ang))])
+            Y = np.concatenate([[0], np.cumsum(steps * np.sin(ang))])
+            turn = turning_angle_deg(t, X, Y, 0.1, 0.3)
+            passed += turn is not None and turn <= 60.0
+        # measured ~15-30 % for 1 s tracks at every rate (the old 3-step net/path passed 73-75 %)
+        assert passed / 200 < 0.35, f"{passed}/200 random walks look like firebrands at {fps} fps"
+        # a near-vertical toss at 1.5 m/s with 1 px jitter
+        X = 0.05 * t + rng.normal(0, SR, len(t))
+        Y = 1.5 * t - 0.5 * G * t * t + rng.normal(0, SR, len(t))
+        assert turning_angle_deg(t, X, Y, 0.1, 0.3) <= 60.0
+
+    def test_launch_speed_under_drag_does_not_depend_on_frame_rate(self):
+        # quadratic drag, launch 3 m/s at 45 degrees, terminal speed 1 m/s
+        from fta_track.units import launch_velocity
+        def track(fps, T=0.6):
+            k = G / 1.0 ** 2
+            dt = 1e-4
+            x = y = 0.0
+            vx = vy = 3.0 / math.sqrt(2)
+            ts, xs, ys = [], [], []
+            for i in range(int(T / dt) + 1):
+                if i % int(round(1 / (fps * dt))) == 0:
+                    ts.append(i * dt); xs.append(x); ys.append(y)
+                v = math.hypot(vx, vy)
+                vx, vy = vx - k * v * vx * dt, vy - (G + k * v * vy) * dt
+                x, y = x + vx * dt, y + vy * dt
+            return np.array(ts), np.array(xs), np.array(ys)
+        speeds = {}
+        for fps in (10.0, 30.3):
+            t, X, Y = track(fps)
+            vx, vy, *_ = launch_velocity(t, X, Y, 0.3)
+            speeds[fps] = math.hypot(vx, vy)
+        assert abs(speeds[10.0] - speeds[30.3]) / speeds[30.3] < 0.10, speeds
+
+    def test_cold_space_threshold_is_capped(self):
+        from fta_track.classify import env_threshold
+        from fta_track.params import Params
+        p = Params()
+        assert env_threshold(80, 30.3, p) == pytest.approx(p.persist_frac)   # 2.6 s: would exceed 1.0

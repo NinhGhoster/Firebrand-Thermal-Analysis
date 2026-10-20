@@ -36,6 +36,9 @@ def test_is_idempotent():
     "\tbranchlet/Acacia/150kW/Twigs/51\n",                      # empty NetCDF
     "level1/thermal/x.nc\tsomething/else/1\n",                  # unknown family
     "level1/thermal/x.nc\tbranchlet/../../etc\n",               # path traversal
+    "level1/thermal/x.nc\tfibrous_bark/E_obliqua/Very_high/50kW\n",   # a parent-level label
+    "level1/thermal/x.nc\tcandlebark/E_rubida/100kW/flat/20cm\n",     # one level short
+    "level1/thermal/x.nc\tbranchlet/Acacia/150kW/./51\n",            # a dot component
 ])
 def test_rejects_malformed_lines(bad):
     with pytest.raises(ValueError):

@@ -24,6 +24,8 @@ import re
 import sys
 
 FAMILIES = ("branchlet", "fibrous_bark", "candlebark", "preliminary_branchlet_test")
+# path components per run label, by fuel type (branchlet has an optional class level)
+DEPTH = {"branchlet": (5, 6), "fibrous_bark": (5,), "candlebark": (6,), "preliminary_branchlet_test": (2,)}
 _OLD_CANDLE_NC = re.compile(r"^(level1/thermal/candlebark/)(Curve|Flat)_(\d+)_(\d+)_kW_(\d+)_cm\.nc$")
 
 
@@ -57,13 +59,19 @@ def build(lines, listing=None):
         nc, label = current_nc(cols[0]), released_label(cols[1])
         if not (nc.startswith("level1/thermal/") and nc.endswith(".nc")) or ".." in nc:
             raise ValueError(f"line {n}: not a Level 1.1 NetCDF path (a header?): {cols[0]!r}")
-        if label.split("/")[0] not in FAMILIES or ".." in label or label.endswith("/") or "//" in label:
-            raise ValueError(f"line {n}: not a run path: {cols[1]!r}")
+        parts = label.split("/")
+        if (parts[0] not in FAMILIES or len(parts) not in DEPTH[parts[0]]
+                or any(c in ("", ".", "..") for c in parts)):
+            raise ValueError(f"line {n}: not a run path (wrong depth for its fuel type?): {cols[1]!r}")
         if label in seen_label or nc in seen_nc:
             raise ValueError(f"line {n}: duplicate run or NetCDF: {label} / {nc}")
         seen_label.add(label)
         seen_nc.add(nc)
         out.append((nc, label))
+    labels = sorted(seen_label)
+    for a, b in zip(labels, labels[1:]):
+        if b.startswith(a + "/"):
+            raise ValueError(f"run {a} is a parent of run {b}")
     if listing is not None:
         missing = [nc for nc, _ in out if nc not in listing]
         unused = sorted(listing - seen_nc)

@@ -45,9 +45,13 @@ class Params:
 
     # --- tracking ----------------------------------------------------------
     v_max_mps: float = 4.0        # search radius for a track that has no velocity yet
-    # Unmodelled acceleration (gravity, drag, plume turbulence), as a standard
-    # deviation in m/s^2; converted per recording to px/frame^2.
-    accel_sigma_mps2: float = 6.0
+    # Unmodelled acceleration (gravity, drag, plume turbulence) as the power spectral
+    # density of a continuous white-noise acceleration, m^2/s^3. 13 makes the 1-sigma
+    # position spread after a 0.18 s coast equal the drift of an unmodelled g:
+    # q = 3 a^2 T / 4 with a = 9.81 m/s^2, T = 0.18 s. Converted per recording to
+    # px^2/frame^3 as q / (s^2 fps^3), so the search region grows the same per second
+    # at every frame rate.
+    accel_psd_m2s3: float = 13.0
     kalman_r_px: float = 2.0      # centroid measurement noise, px
     gate_chi2: float = 13.8       # Mahalanobis gate: chi-square, 2 dof, 99.9 %
     gate_floor_px: float = 8.0    # always accept a detection this close to the prediction
@@ -72,11 +76,18 @@ class Params:
     min_edge_grad: float = 30.0       # degC per pixel across the blob edge: solid, not gas
     min_cold_s: float = 0.066         # evidence detections must cover this long
     min_disp_m: float = 0.05          # net displacement
-    min_straightness: float = 0.5     # median net / path length over windows ...
-    straight_min_s: float = 0.12      # ... of this duration, once the track is at least this long
+    # Erratic motion: the median turning angle between successive displacement steps
+    # of straight_dt_s. Random wandering (a centroid hopping between flicker blobs or
+    # along a flame front) turns ~90 degrees per step; a firebrand's arc turns little.
+    # Measured on a time grid, so it means the same at every frame rate; scored only
+    # once the track spans straight_min_s (at least three steps).
+    straight_dt_s: float = 0.1
+    straight_min_s: float = 0.3
+    max_turn_deg: float = 60.0
 
     # --- kinematics and units ---------------------------------------------
     lsq_window_s: float = 0.165       # duration of each least-squares velocity fit
+    launch_fit_s: float = 0.3         # launch velocity: quadratic over the first this many seconds
     lens_hfov_deg: float = 45.0       # FLIR T1040, FOL21 lens
     m_per_px: Optional[float] = None  # override the lens-derived scale
 
@@ -94,12 +105,11 @@ class Params:
             "window_frames": self.window_frames(fps),
             "max_miss_frames": self.max_miss_frames(fps),
             "min_hits": max(2, 1 + int(math.ceil(self.confirm_span_s * fps - _EPS))),
-            "min_track_dets": max(3, 1 + int(math.ceil(self.min_track_span_s * fps - _EPS))),
             "min_cold_dets": max(1, int(round(self.min_cold_s * fps))),
-            "straight_min_vectors": max(3, int(math.ceil(self.straight_min_s * fps - _EPS))),
             "lsq_points": max(3, int(round(self.lsq_window_s * fps))),
-            "gate_new_px": min(200.0, self.v_max_mps / (m_per_px * fps)),
-            "q_px": self.accel_sigma_mps2 / (m_per_px * fps * fps),
+            "gate_new_px": self.v_max_mps / (m_per_px * fps),
+            "new_track_speed_limit_mps": self.v_max_mps,
+            "q_px": self.accel_psd_m2s3 / (m_per_px * m_per_px * fps ** 3),
         }
 
     def to_dict(self) -> dict:

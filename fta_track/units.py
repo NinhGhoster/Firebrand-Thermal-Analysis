@@ -58,25 +58,52 @@ def velocity_series(t: np.ndarray, X: np.ndarray, Y: np.ndarray, window: int) ->
     return vx, vy
 
 
-def launch_velocity(t: np.ndarray, X: np.ndarray, Y: np.ndarray, window: int):
-    """Velocity at the first detection, and the time it refers to.
+def launch_velocity(t: np.ndarray, X: np.ndarray, Y: np.ndarray, span_s: float):
+    """Velocity at the first detection, and how it was estimated.
 
-    With >= 5 points, the derivative at t[0] of a quadratic fit over the first
-    max(5, window + 1) points: the speed *at* launch, not the mean over the first
-    few frames (which lags by about window/2 frames and so depends on frame rate
-    for a firebrand that is slowing down or speeding up). With fewer points, the
-    least-squares slope, which refers to the mean time of those points.
-    Returns (vx, vy, t_ref, method).
+    Fitted over every point within span_s of the first, so the fit covers the same
+    duration at every frame rate (a fixed number of points would cover 0.4 s at 10 fps
+    and 0.13 s at 30 fps, and a decelerating firebrand would read slower at 10 fps).
+    With >= 4 such points: the derivative at t[0] of a quadratic fit (the speed *at*
+    launch). With 2-3: the least-squares slope, which refers to the points' mean time.
+    Returns (vx, vy, t_ref, method, span_used_s).
     """
-    n = len(t)
-    m = min(n, max(5, window + 1))
-    if m >= 5:
-        tt = np.asarray(t[:m], dtype=float) - float(t[0])
+    t = np.asarray(t, dtype=float)
+    m = int(np.searchsorted(t, t[0] + span_s + 1e-9))
+    m = max(m, min(len(t), 2))
+    tt = t[:m] - t[0]
+    span = float(tt[-1]) if m else 0.0
+    if m >= 4:
         cx = np.polyfit(tt, np.asarray(X[:m], dtype=float), 2)
         cy = np.polyfit(tt, np.asarray(Y[:m], dtype=float), 2)
-        return float(cx[1]), float(cy[1]), float(t[0]), "quadratic"
+        return float(cx[1]), float(cy[1]), float(t[0]), "quadratic", span
     return (lsq_slope(t[:m], X[:m]), lsq_slope(t[:m], Y[:m]),
-            float(np.mean(t[:m])) if m else float("nan"), "linear")
+            float(np.mean(t[:m])) if m else float("nan"), "linear", span)
+
+
+def turning_angle_deg(t: np.ndarray, X: np.ndarray, Y: np.ndarray, dt: float, min_span: float):
+    """Median absolute turning angle (degrees) between successive steps of dt seconds.
+
+    Positions are interpolated onto a time grid of step dt, so the statistic covers
+    the same durations at every frame rate. None if the track spans less than
+    min_span or gives fewer than three steps.
+    """
+    t = np.asarray(t, dtype=float)
+    if len(t) < 2 or t[-1] - t[0] < min_span - 1e-9:
+        return None
+    grid = np.arange(t[0], t[-1] + 1e-9, dt)
+    if len(grid) < 4:
+        return None
+    gx = np.interp(grid, t, np.asarray(X, dtype=float))
+    gy = np.interp(grid, t, np.asarray(Y, dtype=float))
+    vx, vy = np.diff(gx), np.diff(gy)
+    moving = np.hypot(vx, vy) > 1e-9
+    ang = np.arctan2(vy, vx)
+    pairs = moving[:-1] & moving[1:]
+    if not pairs.any():
+        return None
+    turn = np.abs((np.diff(ang) + np.pi) % (2 * np.pi) - np.pi)[pairs]
+    return float(np.degrees(np.median(turn)))
 
 
 def vertical_acceleration(t: np.ndarray, Y: np.ndarray) -> Optional[float]:

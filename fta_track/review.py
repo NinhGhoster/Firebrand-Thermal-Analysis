@@ -13,10 +13,21 @@ were real firebrands (what the gates threw away), per recording and per
 rejection reason, both as raw sample tallies and as estimates weighted by the
 size of each sampled stratum.
 
-Blindness: clips have random ids and file names, the page is shuffled with a
-fresh random order when it is written, and it carries no label, track id,
-feature or decision. Verdicts are keyed to the batch's random nonce, so
-answers given on one batch can never be scored against another.
+Layout of a batch directory:
+
+    <batch>/manifest.json      the answer key (decisions, labels, features): never hand this over
+    <batch>/scores.json        written by score()
+    <batch>/public/            the ONLY thing the reviewer receives
+    <batch>/public/index.html
+    <batch>/public/clips/<random id>.png, <random id>_ctx.jpg
+
+Blindness: clips have random ids and file names, are rendered in a random order
+and given one fixed modification time (so neither names nor timestamps follow
+the hidden classes), the page is shuffled with a fresh random order when it is
+written, and it carries no label, track id, feature or decision. Verdicts are
+keyed to the batch's random nonce, so answers given on one batch can never be
+scored against another; re-merging a batch keeps its nonce, so work in progress
+survives.
 """
 
 from __future__ import annotations
@@ -27,15 +38,16 @@ import json
 import math
 import os
 import random
+import re
 import secrets
 from collections import defaultdict
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import cv2
 import numpy as np
 
 # kept (hidden) with each clip, so verdicts can be turned into threshold curves
-FEATURES = ("n_det", "n_cold", "n_evidence", "max_contrast_c", "displacement_m", "straightness",
+FEATURES = ("n_det", "n_cold", "n_evidence", "max_contrast_c", "displacement_m", "turn_deg",
             "peak_c", "mean_speed_mps", "duration_s", "mean_area_px", "area_jump", "edge_grad")
 SPRITE_COLS = 12
 TILE = 192            # clip frame size in the sprite, px
@@ -152,6 +164,10 @@ def _render(var, track: Dict, n_frames: int, out_png: str, out_ctx: str) -> Dict
             "cols": SPRITE_COLS, "crop_px": [x0, y0, cw, ch]}
 
 
+_OPAQUE = re.compile(r"^[0-9a-f]{12}$")
+_FIXED_MTIME = 1_600_000_000      # every clip file gets this modification time
+
+
 def _new_id(taken) -> str:
     while True:
         cid = secrets.token_hex(6)
@@ -159,10 +175,30 @@ def _new_id(taken) -> str:
             return cid
 
 
+def _flatten_time(path: str) -> None:
+    os.utime(path, (_FIXED_MTIME, _FIXED_MTIME))
+
+
+def _write_json_atomic(path: str, obj) -> None:
+    tmp = f"{path}.tmp-{os.getpid()}"
+    with open(tmp, "w") as fh:
+        json.dump(obj, fh)
+    os.replace(tmp, path)
+
+
+def _public_dir(batch_dir: str) -> str:
+    return os.path.join(batch_dir, "public")
+
+
 def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
-               n_firebrand: int = 15, n_rejected: int = 12, min_det: int = 3, seed: int = 0) -> int:
+               n_firebrand: int = 15, n_rejected: int = 12, min_det: Optional[int] = None, seed: int = 0) -> int:
     import netCDF4 as nc
 
+    with open(os.path.join(results_dir, "summary.json")) as fh:
+        results_summary = json.load(fh)
+    if min_det is None:
+        # every confirmed track is eligible: at 10-15 fps a confirmed track can have 2 detections
+        min_det = int((results_summary.get("derived") or {}).get("min_hits", 3))
     tracks = _read_tracks(results_dir)
     rng = random.Random(f"{seed}:{label}")
     fb = [t for t in tracks if t["is_firebrand"] == "1"]
@@ -187,20 +223,17 @@ def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
     sampled = defaultdict(int)
     for _, stratum, _ in picks:
         sampled[stratum] += 1
+    # render in a random order: file creation order must not follow the strata
+    random.SystemRandom().shuffle(picks)
 
-    clips_dir = os.path.join(batch_dir, "clips")
+    clips_dir = os.path.join(_public_dir(batch_dir), "clips")
     os.makedirs(clips_dir, exist_ok=True)
     man_path = os.path.join(batch_dir, "manifest.json")
     manifest = json.load(open(man_path)) if os.path.exists(man_path) else {"clips": []}
     manifest.setdefault("nonce", secrets.token_hex(8))
-    for old in [c for c in manifest["clips"] if c["label"] == label]:
-        for suffix in (".png", "_ctx.jpg"):
-            path = os.path.join(clips_dir, old["id"] + suffix)
-            if os.path.exists(path):
-                os.remove(path)
-    manifest["clips"] = [c for c in manifest["clips"] if c["label"] != label]
     taken = {c["id"] for c in manifest["clips"]}
 
+    new_clips = []
     ds = nc.Dataset(nc_path, "r")
     try:
         var = ds.variables["temperature"]
@@ -210,9 +243,11 @@ def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
         for t, stratum, population in picks:
             cid = _new_id(taken)
             taken.add(cid)
-            info = _render(var, t, n_frames, os.path.join(clips_dir, cid + ".png"),
-                           os.path.join(clips_dir, cid + "_ctx.jpg"))
-            manifest["clips"].append({
+            png, ctx = os.path.join(clips_dir, cid + ".png"), os.path.join(clips_dir, cid + "_ctx.jpg")
+            info = _render(var, t, n_frames, png, ctx)
+            _flatten_time(png)
+            _flatten_time(ctx)
+            new_clips.append({
                 "id": cid, "fps": fps, **info,
                 # hidden from the reviewer; used only by score()
                 "label": label, "track_id": t["track_id"],
@@ -224,8 +259,21 @@ def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
             })
     finally:
         ds.close()
-    with open(man_path, "w") as fh:
-        json.dump(manifest, fh)
+
+    # Swap the label's clips only now that every new clip exists; then remove the old files.
+    old = [c for c in manifest["clips"] if c["label"] == label]
+    manifest["clips"] = [c for c in manifest["clips"] if c["label"] != label] + new_clips
+    manifest.setdefault("parts", {})[label] = {
+        "params_hash": results_summary.get("params_hash"),
+        "tracking_code_version": results_summary.get("tracking_code_version"),
+        "min_det": min_det,
+    }
+    _write_json_atomic(man_path, manifest)
+    for c in old:
+        for suffix in (".png", "_ctx.jpg"):
+            path = os.path.join(clips_dir, c["id"] + suffix)
+            if os.path.exists(path):
+                os.remove(path)
     write_page(batch_dir)
     return len(picks)
 
@@ -327,41 +375,68 @@ show();
 _PUBLIC_KEYS = ("id", "fps", "frames", "marks", "n_tiles", "tile", "cols", "crop_px")
 
 
+def _check_opaque(clips) -> None:
+    bad = [c["id"] for c in clips if not _OPAQUE.match(str(c["id"]))]
+    if bad:
+        raise ValueError(f"{len(bad)} clip id(s) are not opaque random tokens (e.g. {bad[0]!r}); "
+                         f"re-render those batches with this version")
+
+
 def merge_batches(out_dir: str, parts: List[str]) -> int:
-    """Combine per-recording batches (built in parallel) into one review page."""
+    """Combine per-recording batches (built in parallel) into one review page.
+
+    Keeps the merged batch's nonce if it already exists, so verdicts in progress survive
+    a re-merge. Refuses old-style ids and a recording that appears in more than one part.
+    """
     import shutil
 
-    os.makedirs(os.path.join(out_dir, "clips"), exist_ok=True)
-    clips, seen = [], set()
+    clips_out = os.path.join(_public_dir(out_dir), "clips")
+    os.makedirs(clips_out, exist_ok=True)
+    out_man = os.path.join(out_dir, "manifest.json")
+    nonce = json.load(open(out_man)).get("nonce") if os.path.exists(out_man) else None
+    clips, seen, owner, part_info = [], set(), {}, {}
     for part in parts:
         man = json.load(open(os.path.join(part, "manifest.json")))
+        _check_opaque(man["clips"])
+        for lab in {c["label"] for c in man["clips"]}:
+            if lab in owner and owner[lab] != part:
+                raise ValueError(f"recording {lab} appears in two parts: {owner[lab]} and {part}")
+            owner[lab] = part
+        part_info.update(man.get("parts", {}))
         for c in man["clips"]:
             if c["id"] in seen:
                 raise ValueError(f"clip id {c['id']} appears in more than one batch")
             seen.add(c["id"])
             for suffix in (".png", "_ctx.jpg"):
-                shutil.copy2(os.path.join(part, "clips", c["id"] + suffix),
-                             os.path.join(out_dir, "clips", c["id"] + suffix))
+                dst = os.path.join(clips_out, c["id"] + suffix)
+                shutil.copyfile(os.path.join(_public_dir(part), "clips", c["id"] + suffix), dst)
+                _flatten_time(dst)
             clips.append(c)
-    with open(os.path.join(out_dir, "manifest.json"), "w") as fh:
-        json.dump({"nonce": secrets.token_hex(8), "clips": clips}, fh)
+    random.SystemRandom().shuffle(clips)
+    _write_json_atomic(out_man, {"nonce": nonce or secrets.token_hex(8), "parts": part_info, "clips": clips})
     write_page(out_dir)
     return len(clips)
 
 
 def write_page(batch_dir: str) -> str:
-    man = json.load(open(os.path.join(batch_dir, "manifest.json")))
-    nonce = man.setdefault("nonce", secrets.token_hex(8))
-    with open(os.path.join(batch_dir, "manifest.json"), "w") as fh:
-        json.dump(man, fh)
+    """Write <batch>/public/index.html: the only file, with clips/, that the reviewer gets."""
+    man_path = os.path.join(batch_dir, "manifest.json")
+    man = json.load(open(man_path))
+    _check_opaque(man["clips"])
+    if "nonce" not in man:
+        man["nonce"] = secrets.token_hex(8)
+        _write_json_atomic(man_path, man)
     # A fresh random order every time the page is written: clips are sampled in class
     # blocks, and a fixed shuffle would put the same classes at the same positions.
     public = [{k: c[k] for k in _PUBLIC_KEYS} for c in man["clips"]]
     random.SystemRandom().shuffle(public)
-    html = _PAGE.replace("__MANIFEST__", json.dumps({"nonce": nonce, "clips": public}))
-    path = os.path.join(batch_dir, "index.html")
-    with open(path, "w") as fh:
+    html = _PAGE.replace("__MANIFEST__", json.dumps({"nonce": man["nonce"], "clips": public}))
+    os.makedirs(_public_dir(batch_dir), exist_ok=True)
+    path = os.path.join(_public_dir(batch_dir), "index.html")
+    tmp = f"{path}.tmp-{os.getpid()}"
+    with open(tmp, "w") as fh:
         fh.write(html)
+    os.replace(tmp, path)
     return path
 
 
@@ -387,38 +462,51 @@ def score(batch_dir: str, verdicts_path: str) -> Dict:
     fb, rej = defaultdict(list), defaultdict(list)
     by_reason = defaultdict(list)
     strata = defaultdict(lambda: {"population": 0, "verdicts": []})
+    for c in man.values():                      # every sampled stratum, judged or not
+        key = (c["label"], c.get("stratum") or ("counted" if c["pipeline_firebrand"] else "rejected:" + c["reject_reason"]))
+        strata[key]["population"] = c.get("stratum_population") or 0
     for cid, v in valid.items():
         c = man[cid]
         (fb if c["pipeline_firebrand"] else rej)[c["label"]].append(v)
         if not c["pipeline_firebrand"]:
             by_reason[c["reject_reason"]].append(v)
         key = (c["label"], c.get("stratum") or ("counted" if c["pipeline_firebrand"] else "rejected:" + c["reject_reason"]))
-        strata[key]["population"] = c.get("stratum_population") or 0
         strata[key]["verdicts"].append(v)
 
-    # Stratum-weighted estimates: each sampled stratum stands for its whole population.
-    est_real_counted = est_real_rejected = pop_counted = pop_rejected = 0.0
-    judged_counted = judged_rejected = 0.0
+    # Stratum-weighted estimates, per recording, over recordings whose every sampled
+    # stratum has at least one yes/no verdict. Pooling strata judged in different
+    # recordings would let partial coverage, the normal state mid-review, decide the result.
+    by_label = defaultdict(dict)
     for (lab, stratum), d in strata.items():
-        t = tally(d["verdicts"])
-        if t["share_yes"] is None:
+        by_label[lab][stratum] = d
+    included, excluded = [], {}
+    est_c = est_r = pop_c = pop_r = 0.0
+    for lab, ss in sorted(by_label.items()):
+        shares = {st: tally(d["verdicts"])["share_yes"] for st, d in ss.items()}
+        missing = sorted(st for st, sh in shares.items() if sh is None)
+        if missing:
+            excluded[lab] = missing
             continue
-        N = float(d["population"])
-        if stratum == "counted":
-            est_real_counted += N * t["share_yes"]
-            pop_counted += N
-        else:
-            est_real_rejected += N * t["share_yes"]
-            pop_rejected += N
+        included.append(lab)
+        for st, d in ss.items():
+            N = float(d["population"])
+            if st == "counted":
+                est_c += N * shares[st]
+                pop_c += N
+            else:
+                est_r += N * shares[st]
+                pop_r += N
     weighted = {
-        "counted_tracks_in_judged_strata": pop_counted,
-        "estimated_real_among_counted": round(est_real_counted, 1),
-        "estimated_precision": round(est_real_counted / pop_counted, 3) if pop_counted else None,
-        "rejected_tracks_in_judged_strata": pop_rejected,
-        "estimated_real_among_rejected": round(est_real_rejected, 1),
-        "estimated_recall_among_confirmed_tracks": (round(est_real_counted / (est_real_counted + est_real_rejected), 3)
-                                                    if (est_real_counted + est_real_rejected) else None),
-        "note": "weighted by stratum size (Horvitz-Thompson); covers only strata with at least one yes/no verdict; "
+        "recordings_included": included,
+        "recordings_excluded": excluded,
+        "counted_tracks": pop_c,
+        "estimated_real_among_counted": round(est_c, 1),
+        "estimated_precision": round(est_c / pop_c, 3) if pop_c else None,
+        "rejected_tracks": pop_r,
+        "estimated_real_among_rejected": round(est_r, 1),
+        "estimated_recall_among_confirmed_tracks": round(est_c / (est_c + est_r), 3) if (est_c + est_r) else None,
+        "note": "stratum-weighted (Horvitz-Thompson) within each included recording; a recording is "
+                "included only when every stratum sampled from it has at least one yes/no verdict; "
                 "recall is relative to confirmed tracks, not to every firebrand in the video",
     }
     out = {
@@ -436,6 +524,5 @@ def score(batch_dir: str, verdicts_path: str) -> Dict:
                           for lab in sorted(set(fb) | set(rej))},
         "rejected_by_reason": {k: tally(v) for k, v in sorted(by_reason.items())},
     }
-    with open(os.path.join(batch_dir, "scores.json"), "w") as fh:
-        json.dump(out, fh, indent=2)
+    _write_json_atomic(os.path.join(batch_dir, "scores.json"), out)
     return out

@@ -26,13 +26,16 @@
 #   REVIEW=$W/review/parts spartan/submit_array.sh --array=5,90,200
 #       also renders review clips while each NetCDF is on disk; combine them with
 #       FTA_CLI.py review-merge $W/review/batch1 $W/review/parts/*
-#   EXTRA="--set persist_frac=0.2" spartan/submit_array.sh ...
+#   EXTRA="--set persist_frac=0.2" spartan/submit_array.sh ...   (only --set pairs)
+#   RUN_OPTS="--qa" spartan/submit_array.sh ...                   (options that do not change results)
 #
 # A task is done only when its summary.json carries the same parameter
-# fingerprint as this submission. Results made with other parameters stop the
-# task loudly instead of being silently mixed into the counts: change tracking
-# or classification with `FTA_CLI.py retrack` (no NetCDF needed), or set FORCE=1
-# to re-run detection.
+# fingerprint as this submission (and, with REVIEW, when its review part was
+# rendered from those same results). Results made with other parameters, or by
+# an older version without a fingerprint, stop the task loudly (exit 3) instead
+# of being silently mixed into the counts: change tracking or classification with
+# `FTA_CLI.py retrack` (no NetCDF needed), or set FORCE=1 to re-run detection.
+# FORCE=1 always re-runs, also after a code fix that leaves the parameters alone.
 
 set -euo pipefail
 
@@ -44,7 +47,8 @@ LIST=${LIST:-$W/worklist.tsv}
 SRC=Mediaflux:/Volumes/proj-6600_3d_firebrand-1128.4.1067/level1.1/thermal_compressed_threshold299
 PY=$W/venv/bin/python
 CLI=$W/FTA/FTA_CLI.py
-EXTRA=${EXTRA:-}                          # e.g. EXTRA="--set persist_frac=0.2"
+EXTRA=${EXTRA:-}                          # only --set NAME=VALUE pairs, e.g. EXTRA="--set persist_frac=0.2"
+RUN_OPTS=${RUN_OPTS:-}                    # only --qa
 REVIEW=${REVIEW:-}                        # directory for per-recording review batches (optional)
 FORCE=${FORCE:-0}
 
@@ -67,8 +71,29 @@ if [[ ! "$LABEL" =~ ^(branchlet|fibrous_bark|candlebark|preliminary_branchlet_te
       || "$LABEL" == *..* || "$LABEL" == *//* ]]; then
     echo "bad work-list line ${SLURM_ARRAY_TASK_ID} (label): $LINE" >&2; exit 2
 fi
+# exact depth per fuel type: a parent-level label would point OUT at a directory of other runs
+IFS=/ read -ra P <<< "$LABEL"
+case "${P[0]}" in
+    branchlet)                  [[ ${#P[@]} -eq 5 || ${#P[@]} -eq 6 ]] ;;
+    fibrous_bark)               [[ ${#P[@]} -eq 5 ]] ;;
+    candlebark)                 [[ ${#P[@]} -eq 6 ]] ;;
+    preliminary_branchlet_test) [[ ${#P[@]} -eq 2 ]] ;;
+    *)                          false ;;
+esac || { echo "bad work-list line ${SLURM_ARRAY_TASK_ID} (label depth): $LINE" >&2; exit 2; }
+for c in "${P[@]}"; do
+    [[ -n "$c" && "$c" != "." && "$c" != ".." ]] || { echo "bad label component in: $LINE" >&2; exit 2; }
+done
+read -ra EXTRA_W <<< "$EXTRA"
+for ((i = 0; i < ${#EXTRA_W[@]}; i += 2)); do
+    [[ "${EXTRA_W[i]}" == "--set" && "${EXTRA_W[i+1]:-}" =~ ^[a-z_0-9]+=[^[:space:]]*$ ]] \
+        || { echo "EXTRA may hold only --set NAME=VALUE pairs; got: $EXTRA" >&2; exit 2; }
+done
+[[ -z "$RUN_OPTS" || "$RUN_OPTS" == "--qa" ]] || { echo "RUN_OPTS may only be --qa; got: $RUN_OPTS" >&2; exit 2; }
 OUT=$W/results/$LABEL
 case "$OUT" in "$W/results/"?*) ;; *) echo "refusing output path $OUT" >&2; exit 2 ;; esac
+if [ -d "$OUT" ] && [ -n "$(find "$OUT" -mindepth 2 -name summary.json -print -quit)" ]; then
+    echo "refusing $OUT: it contains other recordings' results" >&2; exit 2
+fi
 PART=$REVIEW/$(tr / _ <<< "$LABEL")
 
 # One task per label at a time, even across resubmissions.
@@ -82,16 +107,26 @@ if [ -s "$OUT/summary.json" ]; then
     HAVE=$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1])).get("params_hash",""))' "$OUT/summary.json")
 fi
 RUN=1
-if [ -n "$HAVE" ]; then
-    if [ "$HAVE" = "$WANT" ]; then
+if [ "$FORCE" = "1" ]; then
+    RUN=1
+elif [ -s "$OUT/summary.json" ]; then
+    if [ -z "$HAVE" ]; then
+        echo "$LABEL has results from an older version without a parameter fingerprint." >&2
+        echo "Use FTA_CLI.py retrack --from-defaults (no NetCDF needed), or FORCE=1 to re-run detection." >&2
+        exit 3
+    elif [ "$HAVE" = "$WANT" ]; then
         RUN=0
-    elif [ "$FORCE" != "1" ]; then
+    else
         echo "$LABEL already has results with parameters $HAVE, not the requested $WANT." >&2
         echo "Use FTA_CLI.py retrack for tracking/classification changes, or FORCE=1 to re-run detection." >&2
         exit 3
     fi
 fi
-if [ "$RUN" = "0" ] && { [ -z "$REVIEW" ] || [ -s "$PART/manifest.json" ]; }; then
+PART_HASH=""
+if [ -n "$REVIEW" ] && [ -s "$PART/manifest.json" ]; then
+    PART_HASH=$("$PY" -c 'import json,sys; m=json.load(open(sys.argv[1])); print(((m.get("parts") or {}).get(sys.argv[2]) or {}).get("params_hash") or "")' "$PART/manifest.json" "$LABEL")
+fi
+if [ "$RUN" = "0" ] && { [ -z "$REVIEW" ] || [ "$PART_HASH" = "$HAVE" ]; }; then
     echo "already done: $LABEL ($HAVE)"; exit 0
 fi
 
@@ -108,7 +143,7 @@ echo "[$(date)] fetched $(du -h "$WORK/in.nc" | cut -f1)"
 if [ "$RUN" = "1" ]; then
     TMPOUT=$OUT.partial.${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}
     rm -rf -- "${TMPOUT:?}"
-    "$PY" "$CLI" run "$WORK/in.nc" --out "$TMPOUT" --label "$LABEL" $EXTRA
+    "$PY" "$CLI" run "$WORK/in.nc" --out "$TMPOUT" --label "$LABEL" $EXTRA $RUN_OPTS
     rm -rf -- "${OUT:?}"
     mv -- "$TMPOUT" "$OUT"
 fi
