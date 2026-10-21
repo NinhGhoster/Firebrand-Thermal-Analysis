@@ -1,0 +1,16 @@
+# Recordings held out for the final blind review, frozen before any threshold is tuned.
+# None was in the 10-recording pilot. One per treatment group the pilot did not use,
+# drawn with random.Random(2026) in this order; two groups were drawn from their 10 fps
+# recordings and two from their 15 fps ones, because all pilot recordings are ~30 fps.
+branchlet/Eucalyptus/100kW/Twigs/C1/Rec-0078
+branchlet/Eucalyptus/150kW/BL_leafy/15
+candlebark/E_rubida/50kW/cylindrical/60cm/cylindrical1_50kW_60cm
+candlebark/E_rubida/150kW/flat/20cm/flat2_150kW_20cm
+candlebark/E_rubida/150kW/cylindrical/60cm/cylindrical2_150kW_60cm
+fibrous_bark/E_obliqua/Very_high/100kW/S8b
+fibrous_bark/E_obliqua/Very_high/150kW/S40
+fibrous_bark/E_obliqua/High/50kW/S6
+fibrous_bark/E_obliqua/Extreme/100kW/S29
+fibrous_bark/E_obliqua/Moderate/50kW/S3
+fibrous_bark/E_radiata/High/100kW/S11
+preliminary_branchlet_test/29
