@@ -13,7 +13,9 @@ H, W, FPS, S = 240, 320, 30.0, 0.002  # frame size, frame rate, metres per pixel
 
 
 def _params(**kw):
-    p = Params(m_per_px=S)
+    # The synthetic scenes are a few seconds long: no ignition flash to wait out, unless a
+    # test asks for one.
+    p = Params(m_per_px=S, settle_s=0.0)
     for k, v in kw.items():
         setattr(p, k, v)
     return p
@@ -93,7 +95,7 @@ class TestFirebrand:
         t = [t for t in res["tracks"] if t["is_firebrand"]][0]
         # vx = s f dx = 0.002*30*3 = 0.18 m/s; vy = -s f dy = 0.30 m/s (up); |v| = 0.35 m/s
         assert t["mean_speed_mps"] == pytest.approx(math.hypot(0.18, 0.30), rel=0.05)
-        assert t["launch_dir_deg"] == pytest.approx(math.degrees(math.atan2(0.30, 0.18)), abs=5)
+        assert t["exit_dir_deg"] == pytest.approx(math.degrees(math.atan2(0.30, 0.18)), abs=5)
         s = t["_series"]
         assert np.nanmedian(s["vx"]) == pytest.approx(0.18, rel=0.08)
         assert np.nanmedian(s["vy"]) == pytest.approx(0.30, rel=0.08)
@@ -110,14 +112,14 @@ class TestFirebrand:
         assert sum(t["is_firebrand"] for t in res["tracks"]) == 1
 
     def test_ember_that_stays_on_the_sample_is_rejected(self):
-        # creeps along the sample's top edge: never reaches cold space
+        # creeps along the sample's top edge: never leaves the flame zone
         stay = (40, 140, 176, 0.5, 0.0, 700.0, 0.0, 2)
         res = _run(_scene(80, sample_from=10, embers=[stay]))
         assert not any(t["is_firebrand"] for t in res["tracks"])
 
     def test_threshold_flicker_on_a_warm_plate_is_rejected(self):
-        # A plate at 295 C never reaches the hot threshold, so it is cold space by
-        # the hot map; a 310 C blob sliding across it is only 15 C above its
+        # A plate at 295 C never reaches the hot threshold, so it is outside the flame
+        # zone; a 310 C blob sliding across it is only 15 C above its
         # surroundings. This is the rig-edge flicker seen in the real recordings.
         def frames():
             for i, f in _scene(150, sample_from=10, embers=[(40, 20, 40, 3.0, 0.0, 310.0, 0.0, 2)]):
@@ -164,8 +166,8 @@ class TestFirebrand:
                             f[cy - 4:cy + 4, cx - 4:cx + 4] = 600.0
                 yield i, f
         res = _run(frames())
-        ember = [t for t in res["tracks"] if abs(t["launch_x_px"] - 220) < 15 and t["n_det"] >= 10]
-        gas = [t for t in res["tracks"] if abs(t["launch_x_px"] - 100) < 15 and t["n_det"] >= 10]
+        ember = [t for t in res["tracks"] if abs(t["exit_x_px"] - 220) < 15 and t["n_det"] >= 10]
+        gas = [t for t in res["tracks"] if abs(t["exit_x_px"] - 100) < 15 and t["n_det"] >= 10]
         assert ember and all(t["is_firebrand"] for t in ember)
         assert gas and not any(t["is_firebrand"] for t in gas)
         assert max(t["edge_grad"] for t in gas) < 30 < min(t["edge_grad"] for t in ember)
@@ -234,9 +236,9 @@ def _ballistic(fps, v=(0.5, 3.0), life_s=0.6, drop=(), seed=3):
         yield i, f
 
 
-def _run_real(frames, fps):
+def _run_real(frames, fps, **kw):
     from fta_track.params import Params
-    return run_frames(frames, (HR, WR), fps, 2.0, Params(m_per_px=SR), log=lambda m: None)
+    return run_frames(frames, (HR, WR), fps, 2.0, Params(m_per_px=SR, settle_s=0.0, **kw), log=lambda m: None)
 
 
 class TestFrameRateIndependence:
@@ -256,15 +258,15 @@ class TestFrameRateIndependence:
         assert len(fb) == 1, [(t["n_det"], t["start_frame"], t["reject_reason"]) for t in res["tracks"]]
 
     @pytest.mark.parametrize("fps", [10.0, 15.38, 30.3])
-    def test_launch_speed_is_the_speed_at_launch(self, fps):
+    def test_exit_speed_is_the_speed_at_launch(self, fps):
         res = _run_real(_ballistic(fps), fps)
         fb = [t for t in res["tracks"] if t["is_firebrand"]][0]
         true_speed = math.hypot(0.5, 3.0)
         # the track starts at the first frame the ember is detected, which can be up
         # to one frame after the launch, by when gravity has taken off up to g/fps
         slowest = math.hypot(0.5, 3.0 - G / fps)
-        assert slowest * 0.93 <= fb["launch_speed_mps"] <= true_speed * 1.07
-        assert fb["launch_fit"] == "quadratic"
+        assert slowest * 0.93 <= fb["exit_speed_mps"] <= true_speed * 1.07
+        assert fb["exit_fit"] == "quadratic"
 
 
 class TestBoundedMemory:
@@ -288,14 +290,15 @@ class TestReviewRendering:
         assert tile.max() == 650.0
 
 
-class TestColdSpace:
+class TestZoneThreshold:
     def test_short_recordings_use_the_absolute_floor(self):
-        from fta_track.classify import env_threshold
+        from fta_track.classify import zone_threshold
         from fta_track.params import Params
         p = Params()
-        assert env_threshold(1000, 30.0, p) == pytest.approx(0.09)    # 3 s of 1000 frames
-        assert env_threshold(300, 30.0, p) == pytest.approx(0.15)     # capped at persist_frac
-        assert env_threshold(18000, 30.0, p) == pytest.approx(0.05)   # 5 % wins in long records
+        assert zone_threshold(1000, 30.0, p) == pytest.approx(0.03)    # 1 s of 1000 frames
+        assert zone_threshold(300, 30.0, p) == pytest.approx(0.10)
+        assert zone_threshold(18000, 30.0, p) == pytest.approx(0.01)   # 1 % wins in long records
+        assert zone_threshold(20, 30.0, p) == pytest.approx(1.0)       # never above every frame
 
 
 def _flight(fps, x0, y0, v, life_s, drop=(), shift=None, extra=None, seed=5):
@@ -334,11 +337,11 @@ class TestTrackerRateInvariance:
     @pytest.mark.parametrize("v", [(0.5, 3.0), (1.5, 2.0), (2.5, 1.0), (1.0, 0.5)])
     @pytest.mark.parametrize("gap_at", [0.12, 0.25])
     def test_a_coast_inside_max_miss_is_bridged_at_30_fps(self, v, gap_at):
-        # 5 missed frames = 0.165 s < max_miss_s (0.18 s), at several points of an arc
+        # 3 missed frames (0.099 s), the longest coast at ~30 fps, at several points of an arc
         fps = 30.3
         frames = _ember_frames(fps, 150, 500, v, 0.6)
         g0 = frames[0] + int(round(gap_at * fps))
-        drop = tuple(range(g0, g0 + 5))
+        drop = tuple(range(g0, g0 + 3))
         res = _run_real(_flight(fps, 150, 500, v, 0.6, drop=drop), fps)
         long = [t for t in res["tracks"] if t["n_det"] >= 4]
         assert len(long) == 1, [(t["n_det"], t["start_frame"], t["end_frame"]) for t in res["tracks"]]
@@ -385,7 +388,7 @@ class TestMotionStatistics:
         Y = 1.5 * t - 0.5 * G * t * t + rng.normal(0, SR, len(t))
         assert turning_angle_deg(t, X, Y, 0.1, 0.3) <= 60.0
 
-    def test_launch_speed_under_drag_does_not_depend_on_frame_rate(self):
+    def test_exit_speed_under_drag_does_not_depend_on_frame_rate(self):
         # quadratic drag, launch 3 m/s at 45 degrees, terminal speed 1 m/s
         from fta_track.units import launch_velocity
         def track(fps, T=0.6):
@@ -408,8 +411,158 @@ class TestMotionStatistics:
             speeds[fps] = math.hypot(vx, vy)
         assert abs(speeds[10.0] - speeds[30.3]) / speeds[30.3] < 0.10, speeds
 
-    def test_cold_space_threshold_is_capped(self):
-        from fta_track.classify import env_threshold
-        from fta_track.params import Params
+    @pytest.mark.parametrize("fps", [10.0, 15.38, 30.3])
+    def test_smoothness_tells_flicker_hops_from_flights(self, fps):
+        from fta_track.units import smoothness_px
         p = Params()
-        assert env_threshold(80, 30.3, p) == pytest.approx(p.persist_frac)   # 2.6 s: would exceed 1.0
+
+        def rough(f, x, y):
+            step = float(np.median(np.hypot(np.diff(x), np.diff(y))))
+            return smoothness_px(f, x, y) > max(p.smooth_floor_px, p.smooth_step_ratio * step)
+
+        rng = np.random.default_rng(7)
+        # flights of 0.6 s, or 1 s at 10 fps: over 0.4 s with five points a quadratic
+        # cannot follow a light flake's hardest braking (the documented 10 fps limit)
+        n = int(round((1.0 if fps < 12 else 0.6) * fps))
+        f = np.arange(n, dtype=float)
+        hops = 0
+        for _ in range(200):          # a centroid hopping 5-25 px between flicker blobs
+            steps = rng.uniform(5, 25, n - 1)
+            ang = rng.uniform(-np.pi, np.pi, n - 1)
+            hops += rough(f, np.concatenate([[0], np.cumsum(steps * np.cos(ang))]),
+                          np.concatenate([[0], np.cumsum(steps * np.sin(ang))]))
+        assert hops / 200 > 0.85, f"only {hops}/200 flicker hops look rough at {fps} fps"
+        t = f / fps
+        flights = 0
+        for _ in range(100):          # free flight with 1-3 px centroid jitter
+            jit = rng.uniform(1, 3)
+            flights += rough(f, 0.5 * t / SR + rng.normal(0, jit, n),
+                             -(3.0 * t - 0.5 * G * t * t) / SR + rng.normal(0, jit, n))
+            X, Y = _drag_path(fps, n, 3.0, 1.0)      # light flake: launch 3 m/s, terminal 1 m/s
+            flights += rough(f, X / SR + rng.normal(0, jit, n), -Y / SR + rng.normal(0, jit, n))
+            flights += rough(f, 0.25 * t / SR + rng.normal(0, jit, n), -0.1 * t / SR + rng.normal(0, jit, n))
+        assert flights / 300 < 0.05, f"{flights}/300 real flights look rough at {fps} fps"
+
+
+def _drag_path(fps, n, v0, vt):
+    """Positions (m, y up) of a body launched at v0 m/s at 45 degrees under gravity and
+    quadratic drag with terminal speed vt, sampled at fps."""
+    k = G / vt ** 2
+    dt = 1e-4
+    x = y = 0.0
+    vx = vy = v0 / math.sqrt(2)
+    xs, ys = [], []
+    every = 1.0 / fps
+    t = next_t = 0.0
+    while len(xs) < n:
+        if t >= next_t - 1e-12:
+            xs.append(x)
+            ys.append(y)
+            next_t += every
+        v = math.hypot(vx, vy)
+        vx, vy = vx - k * v * vx * dt, vy - (G + k * v * vy) * dt
+        x, y = x + vx * dt, y + vy * dt
+        t += dt
+    return np.array(xs), np.array(ys)
+
+
+class TestFlameZone:
+    """Detections where the flame is are never tracked; firebrands are measured from its edge."""
+
+    def _flicker(self, n=200, ember=None, seed=4):
+        # a sample from frame 10 and, just above it, a band where the flame flickers:
+        # every frame six 3x3 blobs at 320 C in random places
+        rng = np.random.default_rng(seed)
+        for i, f in _scene(n, sample_from=10, embers=[ember] if ember else (), seed=seed):
+            if i >= 10:
+                for _ in range(6):
+                    by, bx = rng.integers(150, 176), rng.integers(130, 188)
+                    f[by:by + 3, bx:bx + 3] = np.maximum(f[by:by + 3, bx:bx + 3], 320.0)
+            yield i, f
+
+    def test_flicker_inside_the_zone_never_becomes_a_track(self):
+        res = _run(self._flicker(), zone_min_s=0.1)
+        band = [d for d in res["detections"] if 150 <= d["cy"] <= 178 and 130 <= d["cx"] <= 190]
+        assert len(band) > 300, "the scene must actually flicker"
+        assert all(d["in_zone"] for d in band)
+        for t in res["tracks"]:
+            s = t["_series"]
+            inside = (s["y_px"] >= 150) & (s["y_px"] <= 178) & (s["x_px"] >= 130) & (s["x_px"] <= 190)
+            assert not inside.any(), "a track was built from flicker inside the flame zone"
+        assert not any(t["is_firebrand"] for t in res["tracks"])
+
+    def test_a_firebrand_is_measured_from_where_it_leaves_the_zone(self):
+        # launched from the sample's top edge, it rises through the flickering band
+        ember = (60, 160, 175, 1.0, -5.0, 900.0, -2.0, 2)
+        res = _run(self._flicker(ember=ember), zone_min_s=0.1)
+        fb = [t for t in res["tracks"] if t["is_firebrand"]]
+        assert len(fb) == 1, [(t["n_det"], t["reject_reason"], t["exit_y_px"]) for t in res["tracks"]]
+        assert fb[0]["exit_y_px"] < 150 and fb[0]["exit_zone_dist_px"] <= 6.0
+
+    def test_the_zone_is_reported(self):
+        res = _run(self._flicker(), zone_min_s=0.1)
+        assert res["zone"].shape == (H, W) and res["zone"][160, 160] and not res["zone"][20, 20]
+        assert 0 < res["derived"]["zone_share"] < 0.5
+
+
+class TestTrackerGates:
+    def _tracker(self, **kw):
+        from fta_track.track import Tracker
+        args = dict(gate_new_px=10.0, q_px=1e4, r_px=2.0, chi2_gate=13.8, gate_floor_px=8.0,
+                    max_misses=3, min_hits=2, area_ratio_max=4.0, excess_ratio_max=5.0, excess_base_c=290.0)
+        args.update(kw)
+        return Tracker(**args)
+
+    @staticmethod
+    def _det(x, y, c=800.0):
+        return {"cx": float(x), "cy": float(y), "area": 4, "max_c": c}
+
+    def test_a_coasting_track_cannot_jump_farther_than_v_max_allows(self):
+        # huge process noise: the statistical gate alone would accept anything
+        tr = self._tracker()
+        for k in range(5):
+            tr.step(k, [self._det(100 + 2 * k, 100)])
+        tr.step(5, [])                                   # one miss
+        tr.step(6, [self._det(170, 100)])                # 62 px on: beyond 10 px/frame x 2 + 8
+        tr.step(7, [self._det(119, 100)])                # back on course, within reach
+        first = tr.flush()[0]
+        assert [round(d["cx"]) for _, d in first.points] == [100, 102, 104, 106, 108, 119]
+
+    def test_a_hot_ember_is_not_continued_by_threshold_flicker(self):
+        tr = self._tracker(gate_new_px=40.0, q_px=10.0)
+        for k in range(4):
+            tr.step(k, [self._det(100 + 3 * k, 100, 750.0)])
+        tr.step(4, [self._det(112, 100, 305.0)])        # where the ember should be, but 305 C
+        first = tr.flush()[0]
+        assert all(d["max_c"] > 700 for _, d in first.points)
+
+
+class TestIgnitionFlash:
+    def test_an_ember_in_the_first_seconds_after_ignition_is_not_counted(self):
+        ember = (40, 160, 175, 3.0, -5.0, 900.0, -3.0, 2)        # 1 s after the sample lights
+        res = _run(_scene(150, sample_from=10, embers=[ember]), settle_s=3.0)
+        movers = [t for t in res["tracks"] if t["n_det"] >= 5]
+        assert movers and all(t["reject_reason"] == "ignition_flash" for t in movers)
+
+
+class TestZoneReentry:
+    def test_a_firebrand_that_crosses_a_hot_patch_is_counted_once(self):
+        # flies right at 5 px/frame through a permanently hot block: tracked before and
+        # after it, and both tracks get one firebrand_id
+        def frames():
+            for i, f in _scene(80, embers=[(2, 20, 100, 5.0, 0.0, 800.0, 0.0, 2)]):
+                f[90:112, 140:162] = 650.0
+                yield i, f
+        res = _run(frames())
+        fb = [t for t in res["tracks"] if t["is_firebrand"]]
+        assert len(fb) == 2, [(t["n_det"], t["reject_reason"], t["exit_x_px"]) for t in res["tracks"]]
+        assert fb[0]["firebrand_id"] == fb[1]["firebrand_id"]
+
+    def test_two_firebrands_far_apart_are_two(self):
+        def frames():
+            for i, f in _scene(80, embers=[(2, 20, 60, 5.0, 0.0, 800.0, 0.0, 2),
+                                          (2, 20, 200, 5.0, 0.0, 800.0, 0.0, 2)]):
+                yield i, f
+        res = _run(frames(), ignition_min_px=1)
+        fb = [t for t in res["tracks"] if t["is_firebrand"]]
+        assert len({t["firebrand_id"] for t in fb}) == 2

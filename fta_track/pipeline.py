@@ -6,14 +6,16 @@ that touches the NetCDF, and the only slow one. Memory stays bounded whatever
 the recording length: only the frames inside the centred persistence window
 are held.
 
-`track_classify` links detections into tracks and decides which are firebrands.
-It needs only the detections and the hot fraction, so it can be re-run from a
-recording's saved outputs in seconds (`FTA_CLI.py retrack`) when a tracking or
-classification parameter changes.
+`track_classify` works out the flame zone from the hot fraction, links the
+detections outside it into tracks, decides which are firebrands, and gives a
+firebrand that left the zone twice one firebrand_id. It needs only the detections
+and the hot fraction, so it can be re-run from a recording's saved outputs in
+seconds (`FTA_CLI.py retrack`) when a tracking or classification parameter changes.
 """
 
 from __future__ import annotations
 
+import math
 import sys
 import time
 from collections import deque
@@ -23,7 +25,7 @@ import cv2
 import numpy as np
 
 from .background import PersistenceWindow
-from .classify import classify, cold_space, track_features
+from .classify import classify, flame_zone, track_features, zone_distance, zone_threshold
 from .detect import detect_blobs
 from .params import Params
 from .track import Tracker
@@ -104,33 +106,111 @@ def detect_stream(frames: Iterable[Tuple[int, np.ndarray]], shape: Tuple[int, in
             "window_frames": win, "max_samples_held": state["max_samples"], "seconds": time.time() - t0}
 
 
+def _crowding(by_frame: Dict[int, List[Dict]], frame: int, det: Dict, own: set, w: int, r: float) -> float:
+    """Other detections within r px of one detection of a track, per frame over +/- w frames.
+
+    Per frame, so the number means the same at every frame rate.
+    """
+    n = 0
+    r2 = r * r
+    for c in range(frame - w, frame + w + 1):
+        for o in by_frame.get(c, ()):
+            if id(o) in own:
+                continue
+            dx, dy = o["cx"] - det["cx"], o["cy"] - det["cy"]
+            if dx * dx + dy * dy <= r2:
+                n += 1
+    return n / (2 * w + 1)
+
+
+def _stitch(rows: List[Dict], fps: float, p: Params, dv: Dict) -> None:
+    """Give every firebrand track a firebrand_id; a zone re-entry inherits its predecessor's.
+
+    A counted track that starts within stitch_zone_px of the zone, at most stitch_gap_s
+    after a counted track ended within stitch_zone_px of it, and no farther from that
+    end than v_max allows (plus the gate floor), is the same firebrand coming back out.
+    Each track hands its id on at most once, to the nearest such successor in time.
+    """
+    fb = sorted((r for r in rows if r["is_firebrand"]), key=lambda r: (r["start_frame"], r["track_id"]))
+    taken = set()
+    next_id = 1
+    for i, b in enumerate(fb):
+        best = None
+        if b["exit_zone_dist_px"] <= p.stitch_zone_px:
+            bs = b["_series"]
+            for a in fb[:i]:
+                if a["track_id"] in taken or a["end_frame"] >= b["start_frame"]:
+                    continue
+                gap = b["start_frame"] - a["end_frame"]
+                if gap / fps > p.stitch_gap_s + 1e-9 or a["end_zone_dist_px"] > p.stitch_zone_px:
+                    continue
+                as_ = a["_series"]
+                jump = math.hypot(bs["x_px"][0] - as_["x_px"][-1], bs["y_px"][0] - as_["y_px"][-1])
+                if jump > dv["gate_new_px"] * gap + p.gate_floor_px:
+                    continue
+                if best is None or gap < best[0]:
+                    best = (gap, a)
+        if best is None:
+            b["firebrand_id"] = next_id
+            next_id += 1
+        else:
+            taken.add(best[1]["track_id"])
+            b["firebrand_id"] = best[1]["firebrand_id"]
+    for r in rows:
+        r.setdefault("firebrand_id", None)
+
+
 def track_classify(dets_by_frame: Dict[int, List[Dict]], span: Tuple[int, int], fps: float, s: float,
-                   hot_frac: np.ndarray, n_post: int, p: Params) -> Tuple[List[Dict], Dict]:
+                   hot_frac: np.ndarray, n_post: int, p: Params) -> Tuple[List[Dict], Dict, np.ndarray]:
     """Track every frame in `span` (inclusive, empty frames too: misses count) and classify.
 
-    Returns the track rows and the per-recording values the thresholds turned into.
+    span[0] is the ignition frame. Detections inside the flame zone are marked
+    in_zone and never tracked. Returns the track rows, the per-recording values the
+    thresholds turned into, and the zone itself.
     """
     dv = p.derived(fps, s)
-    tracker = Tracker(dv["gate_new_px"], dv["q_px"], p.kalman_r_px, p.gate_chi2, p.gate_floor_px,
-                      dv["max_miss_frames"], dv["min_hits"], p.track_area_ratio_max)
-    for dets in dets_by_frame.values():
+    zone = flame_zone(hot_frac, n_post, fps, p)
+    zdist = zone_distance(zone)
+    H, W = zone.shape
+    outside: Dict[int, List[Dict]] = {}
+    for c, dets in dets_by_frame.items():
         for d in dets:
             d.pop("track_id", None)
+            d.pop("firebrand_id", None)
+            xi = min(W - 1, max(0, int(round(d["cx"]))))
+            yi = min(H - 1, max(0, int(round(d["cy"]))))
+            d["in_zone"] = bool(zone[yi, xi])
+            if not d["in_zone"]:
+                outside.setdefault(c, []).append(d)
+    tracker = Tracker(dv["gate_new_px"], dv["q_px"], p.kalman_r_px, p.gate_chi2, p.gate_floor_px,
+                      dv["max_miss_frames"], dv["min_hits"], p.track_area_ratio_max,
+                      p.track_excess_ratio_max, p.hot_thresh_c - p.excess_floor_c)
     for c in range(span[0], span[1] + 1):
-        tracker.step(c, dets_by_frame.get(c, []))
-    cold = cold_space(hot_frac, n_post, fps, p)
+        tracker.step(c, outside.get(c, []))
     rows = []
     for t in tracker.flush():
-        f = track_features(t.points, fps, s, cold, p, dv)
-        reason = classify(f, p, dv)
+        own = {id(d) for _, d in t.points}
+        crowd = [_crowding(outside, f, d, own, dv["crowd_frames"], p.crowd_radius_px) for f, d in t.points]
+        ctx = {"zone_dist": zdist, "hot_frac": hot_frac, "ignition_frame": span[0], "crowd": crowd}
+        f = track_features(t.points, fps, s, ctx, p, dv)
+        reason, fails = classify(f, p, dv)
         f["track_id"] = t.public_id
         f["is_firebrand"] = reason == ""
         f["reject_reason"] = reason
+        f["fails"] = fails
         for _, d in t.points:
             d["track_id"] = t.public_id
         rows.append(f)
-    dv["cold_space_share"] = round(float(cold.mean()), 4)
-    return rows, dv
+    _stitch(rows, fps, p, dv)
+    fid = {r["track_id"]: r["firebrand_id"] for r in rows if r["firebrand_id"] is not None}
+    for dets in dets_by_frame.values():
+        for d in dets:
+            if d.get("track_id") in fid:
+                d["firebrand_id"] = fid[d["track_id"]]
+    dv["zone_threshold"] = round(zone_threshold(n_post, fps, p), 6)
+    dv["zone_share"] = round(float(zone.mean()), 4)
+    dv["detections_in_zone"] = int(sum(1 for dets in dets_by_frame.values() for d in dets if d["in_zone"]))
+    return rows, dv, zone
 
 
 def run_frames(frames: Iterable[Tuple[int, np.ndarray]], shape: Tuple[int, int], fps: float,
@@ -139,11 +219,11 @@ def run_frames(frames: Iterable[Tuple[int, np.ndarray]], shape: Tuple[int, int],
     det = detect_stream(frames, shape, fps, p, log)
     t0 = time.time()
     if det["ignition_frame"] is None:
-        tracks, dv = [], p.derived(fps, s)
-        dv["cold_space_share"] = None
+        tracks, dv, zone = [], p.derived(fps, s), np.zeros(shape, dtype=bool)
+        dv["zone_share"] = None
     else:
-        tracks, dv = track_classify(det["dets_by_frame"], (det["ignition_frame"], det["last_frame"]),
-                                    fps, s, det["hot_frac"], det["n_post"], p)
+        tracks, dv, zone = track_classify(det["dets_by_frame"], (det["ignition_frame"], det["last_frame"]),
+                                          fps, s, det["hot_frac"], det["n_post"], p)
     all_dets = [d for c in sorted(det["dets_by_frame"]) for d in det["dets_by_frame"][c]]
     return {
         "detections": all_dets,
@@ -151,6 +231,7 @@ def run_frames(frames: Iterable[Tuple[int, np.ndarray]], shape: Tuple[int, int],
         "ignition_frame": det["ignition_frame"],
         "first_frame": det["first_frame"], "last_frame": det["last_frame"],
         "hot_frac": det["hot_frac"],
+        "zone": zone,
         "n_post": det["n_post"],
         "m_per_px": s,
         "window_frames": det["window_frames"],
@@ -164,8 +245,14 @@ def run_frames(frames: Iterable[Tuple[int, np.ndarray]], shape: Tuple[int, int],
 def render_qa(frames: Iterable[Tuple[int, np.ndarray]], res: Dict, fps: float, path: str,
               vmax_c: float = 800.0) -> None:
     """Half-resolution overlay video: firebrand tracks green and labelled, other tracks
-    orange, untracked blobs grey. A second pass over the recording, after tracking."""
+    orange, untracked blobs grey, the flame zone's outline yellow. A second pass over the
+    recording, after tracking."""
     fb = {t["track_id"] for t in res["tracks"] if t["is_firebrand"]}
+    outline = None
+    if res.get("zone") is not None and res["zone"].any():
+        z = cv2.resize(res["zone"].astype(np.uint8), (res["zone"].shape[1] // 2, res["zone"].shape[0] // 2),
+                       interpolation=cv2.INTER_NEAREST)
+        outline, _ = cv2.findContours(z, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     by_frame: Dict[int, List[Dict]] = {}
     for d in res["detections"]:
         by_frame.setdefault(d["frame"], []).append(d)
@@ -177,6 +264,8 @@ def render_qa(frames: Iterable[Tuple[int, np.ndarray]], res: Dict, fps: float, p
             vw = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
         g = (np.clip(frame, 0.0, vmax_c) / vmax_c * 255.0).astype(np.uint8)
         img = cv2.applyColorMap(cv2.resize(g, size, interpolation=cv2.INTER_AREA), cv2.COLORMAP_INFERNO)
+        if outline is not None:
+            cv2.drawContours(img, outline, -1, (0, 255, 255), 1)
         for d in by_frame.get(c, []):
             x, y, bw, bh = d["bbox"]
             tid = d.get("track_id")
@@ -184,7 +273,8 @@ def render_qa(frames: Iterable[Tuple[int, np.ndarray]], res: Dict, fps: float, p
             p0, p1 = (x // 2 - 3, y // 2 - 3), ((x + bw) // 2 + 3, (y + bh) // 2 + 3)
             cv2.rectangle(img, p0, p1, col, 1)
             if tid in fb:
-                cv2.putText(img, str(tid), (p1[0] + 2, p0[1] + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.35, col, 1)
+                cv2.putText(img, str(d.get("firebrand_id") or tid), (p1[0] + 2, p0[1] + 8),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.35, col, 1)
         cv2.putText(img, f"frame {c}  t={c / fps:7.2f}s", (6, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
         vw.write(img)
     if vw is not None:

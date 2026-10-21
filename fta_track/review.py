@@ -4,8 +4,16 @@
 short clip (a sprite sheet) plus a context thumbnail, and appends them to a
 batch directory. `write_page` writes a self-contained index.html: the reviewer
 sees one clip at a time, in shuffled order, without the pipeline's decision,
-and answers y (firebrand leaving the sample), n (not), u (unsure). Verdicts
+and answers y (firebrand leaving the sample), n (not), p (partly: a firebrand for
+only part of the clip), u (unsure). Every other tracked object in the clip is
+marked with the same small dot whatever its class, so the reviewer can see what
+the pipeline found, and that a firebrand with no dot was missed. Verdicts
 persist in the browser and are downloaded as verdicts.json.
+
+`make_batch` also writes a contact sheet per clip into <batch>/sheets/, outside
+public/: frames of a crop that follows the object, zoomed, with the ring and the
+other tracks' dots burned in, and the whole frame with the path and the flame
+zone. Sheets are for a second judge who cannot play the clip.
 
 `score` compares verdicts with the pipeline's decisions: the share of counted
 firebrands that are real (precision), and the share of rejected tracks that
@@ -20,6 +28,7 @@ Layout of a batch directory:
     <batch>/public/            the ONLY thing the reviewer receives
     <batch>/public/index.html
     <batch>/public/clips/<random id>.png, <random id>_ctx.jpg
+    <batch>/sheets/<random id>.jpg   contact sheets, never handed to the reviewer
 
 Blindness: clips have random ids and file names, are rendered in a random order
 and given one fixed modification time (so neither names nor timestamps follow
@@ -47,8 +56,10 @@ import cv2
 import numpy as np
 
 # kept (hidden) with each clip, so verdicts can be turned into threshold curves
-FEATURES = ("n_det", "n_cold", "n_evidence", "max_contrast_c", "displacement_m", "turn_deg",
-            "peak_c", "mean_speed_mps", "duration_s", "mean_area_px", "area_jump", "edge_grad")
+FEATURES = ("n_det", "n_evidence", "max_contrast_c", "smooth_px", "median_step_px", "crowding", "start_after_ignition_s",
+            "exit_zone_dist_px", "end_zone_dist_px", "exit_hot_frac", "displacement_m", "turn_deg",
+            "peak_c", "mean_speed_mps", "exit_speed_mps", "vert_accel_mps2", "duration_s", "mean_area_px",
+            "area_jump", "edge_grad")
 SPRITE_COLS = 12
 TILE = 192            # clip frame size in the sprite, px
 MAX_CLIP_FRAMES = 96
@@ -56,7 +67,8 @@ PAD_FRAMES = 8
 VMIN, VMAX = 20.0, 800.0
 
 
-def _read_tracks(results_dir: str) -> List[Dict]:
+def _read_tracks(results_dir: str):
+    """Track rows with their points, and every track's (frame, x, y) for the dots."""
     with open(os.path.join(results_dir, "tracks.csv"), newline="") as fh:
         rows = list(csv.DictReader(fh))
     pts = defaultdict(list)
@@ -65,7 +77,8 @@ def _read_tracks(results_dir: str) -> List[Dict]:
         for r in csv.DictReader(fh):
             tid = int(r["track_id"])
             pts[tid].append((int(r["frame"]), float(r["x_px"]), float(r["y_px"])))
-            extra[tid].append((float(r["max_c"]), float(r["contrast_c"]) if r["contrast_c"] else None))
+            extra[tid].append((float(r["max_c"]), float(r["contrast_c"]) if r["contrast_c"] else None,
+                               float(r["zone_dist_px"]) if r.get("zone_dist_px") else None))
     hf_path = os.path.join(results_dir, "hot_fraction.npz")
     hot = np.load(hf_path)["hot_frac"].astype(np.float32) if os.path.exists(hf_path) else None
     for r in rows:
@@ -78,13 +91,17 @@ def _read_tracks(results_dir: str) -> List[Dict]:
         r["point_data"] = []
         for k in order:
             f, x, y = pts[tid][k]
-            mx, con = extra[tid][k]
+            mx, con, zd = extra[tid][k]
             hf = None
             if hot is not None:
                 hf = round(float(hot[min(hot.shape[0] - 1, max(0, int(round(y)))),
                                      min(hot.shape[1] - 1, max(0, int(round(x))))]), 4)
-            r["point_data"].append([f, round(x, 2), round(y, 2), mx, con, hf])
-    return rows
+            r["point_data"].append([f, round(x, 2), round(y, 2), mx, con, hf, zd])
+    by_frame = defaultdict(list)
+    for tid, ps in pts.items():
+        for f, x, y in ps:
+            by_frame[f].append((tid, x, y))
+    return rows, by_frame
 
 
 def _num(v):
@@ -129,7 +146,7 @@ def _shrink(crop: np.ndarray, out_w: int, out_h: int, scale: float) -> np.ndarra
     return cv2.resize(crop, (out_w, out_h), interpolation=cv2.INTER_NEAREST)
 
 
-def _render(var, track: Dict, n_frames: int, out_png: str, out_ctx: str) -> Dict:
+def _render(var, track: Dict, n_frames: int, out_png: str, out_ctx: str, others=None) -> Dict:
     H, W = var.shape[1], var.shape[2]
     f0 = max(0, track["points"][0][0] - PAD_FRAMES)
     f1 = min(n_frames - 1, track["points"][-1][0] + PAD_FRAMES)
@@ -144,13 +161,17 @@ def _render(var, track: Dict, n_frames: int, out_png: str, out_ctx: str) -> Dict
     block = np.asarray(var[f0:f1 + 1:stride, y0:y0 + ch, x0:x0 + cw], dtype=np.float32)
     rows = math.ceil(len(frames) / SPRITE_COLS)
     sprite = np.zeros((rows * TILE, SPRITE_COLS * TILE, 3), dtype=np.uint8)
-    marks = []
+    marks, dots = [], []
     for k, f in enumerate(frames):
         tile = _colour(_shrink(block[k], out_w, out_h, scale))
         r, c = divmod(k, SPRITE_COLS)
         sprite[r * TILE:r * TILE + tile.shape[0], c * TILE:c * TILE + tile.shape[1]] = tile
         p = at.get(f)
         marks.append(None if p is None else [round((p[0] - x0) * scale, 1), round((p[1] - y0) * scale, 1)])
+        # every other tracked object in view, whatever its class, drawn the same way
+        dots.append([[round((x - x0) * scale, 1), round((y - y0) * scale, 1)]
+                     for tid, x, y in (others or {}).get(f, ())
+                     if tid != track["track_id"] and x0 <= x < x0 + cw and y0 <= y < y0 + ch])
     cv2.imwrite(out_png, sprite, [cv2.IMWRITE_PNG_COMPRESSION, 6])
 
     mid = track["points"][len(track["points"]) // 2][0]
@@ -160,8 +181,60 @@ def _render(var, track: Dict, n_frames: int, out_png: str, out_ctx: str) -> Dict
     cv2.rectangle(ctx, (x0, y0), (x0 + cw, y0 + ch), (255, 255, 255), 2)
     cv2.imwrite(out_ctx, cv2.resize(ctx, (W * 3 // 8, H * 3 // 8), interpolation=cv2.INTER_AREA),
                 [cv2.IMWRITE_JPEG_QUALITY, 85])
-    return {"frames": frames, "marks": marks, "n_tiles": len(frames), "tile": TILE,
+    return {"frames": frames, "marks": marks, "others": dots, "n_tiles": len(frames), "tile": TILE,
             "cols": SPRITE_COLS, "crop_px": [x0, y0, cw, ch]}
+
+
+SHEET_FRAMES = 12
+SHEET_CROP = 72        # px of the recording around the object in each sheet frame
+SHEET_TILE = 216       # displayed size of each sheet frame (3x zoom)
+
+
+def _render_sheet(var, track: Dict, fps: float, out_jpg: str, zone=None) -> None:
+    """A contact sheet for a judge who cannot play the clip.
+
+    Top: up to 12 frames, sampled evenly over the track's own detections, each a
+    72 px crop centred on the object and zoomed 3x, the object ringed in cyan, with
+    the time since the track began. Bottom: the whole frame at the middle detection,
+    the path in cyan (a dot at its start) and the flame zone outlined in yellow.
+    Images only: no temperatures and no other tracks are printed, so a judge's
+    verdict cannot lean on the very features the verdicts are used to tune.
+    """
+    H, W = var.shape[1], var.shape[2]
+    pts = track["points"]
+    idx = np.unique(np.linspace(0, len(pts) - 1, min(SHEET_FRAMES, len(pts))).round().astype(int))
+    half = SHEET_CROP // 2
+    z = SHEET_TILE / SHEET_CROP
+    tiles = []
+    for i in idx:
+        f, x, y = pts[i]
+        cx = int(min(max(round(x), half), W - half))
+        cy = int(min(max(round(y), half), H - half))
+        crop = np.asarray(var[f, cy - half:cy + half, cx - half:cx + half], dtype=np.float32)
+        tile = cv2.resize(_colour(crop), (SHEET_TILE, SHEET_TILE), interpolation=cv2.INTER_NEAREST)
+        cv2.circle(tile, (int((x - cx + half) * z), int((y - cy + half) * z)), 22, (255, 229, 0), 2)
+        label = f"+{(f - pts[0][0]) / fps:.2f}s"
+        cv2.putText(tile, label, (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+        tiles.append(tile)
+    while len(tiles) % 6:
+        tiles.append(np.zeros_like(tiles[0]))
+    top = np.vstack([np.hstack(tiles[r:r + 6]) for r in range(0, len(tiles), 6)])
+
+    mid = pts[len(pts) // 2][0]
+    ctx = _colour(np.asarray(var[mid], dtype=np.float32))
+    if zone is not None and zone.any():
+        cs, _ = cv2.findContours(zone.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(ctx, cs, -1, (0, 255, 255), 2)
+    poly = np.array([[int(x), int(y)] for _, x, y in pts], dtype=np.int32)
+    cv2.polylines(ctx, [poly], False, (255, 255, 0), 2)
+    cv2.circle(ctx, (int(pts[0][1]), int(pts[0][2])), 6, (255, 255, 0), -1)
+    bw = top.shape[1]
+    bottom = cv2.resize(ctx, (bw, int(round(H * bw / W))), interpolation=cv2.INTER_AREA)
+    sheet = np.vstack([top, bottom])
+    scale = min(1.0, 1300.0 / sheet.shape[1])
+    if scale < 1.0:
+        sheet = cv2.resize(sheet, (int(sheet.shape[1] * scale), int(sheet.shape[0] * scale)), interpolation=cv2.INTER_AREA)
+    cv2.imwrite(out_jpg, sheet, [cv2.IMWRITE_JPEG_QUALITY, 88])
 
 
 _OPAQUE = re.compile(r"^[0-9a-f]{12}$")
@@ -190,8 +263,33 @@ def _public_dir(batch_dir: str) -> str:
     return os.path.join(batch_dir, "public")
 
 
+def _zone_for(results_dir: str, summary: Dict):
+    """The recording's flame zone, rebuilt from its hot fraction and recorded parameters."""
+    from dataclasses import fields
+
+    from .classify import flame_zone
+    from .params import Params
+
+    hf_path = os.path.join(results_dir, "hot_fraction.npz")
+    if not os.path.exists(hf_path):
+        return None
+    known = {f.name for f in fields(Params)}
+    p = Params(**{k: v for k, v in (summary.get("params") or {}).items() if k in known})
+    n_post = summary.get("post_ignition_frames") or 0
+    hot = np.load(hf_path)["hot_frac"].astype(np.float32)
+    return flame_zone(hot, int(n_post), float(summary["fps"]), p)
+
+
 def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
-               n_firebrand: int = 15, n_rejected: int = 12, min_det: Optional[int] = None, seed: int = 0) -> int:
+               n_firebrand: Optional[int] = 15, n_rejected: int = 12, min_det: Optional[int] = None,
+               seed: int = 0, near_miss: bool = False, sheets: bool = True) -> int:
+    """Sample a recording's tracks into a review batch and render them.
+
+    n_firebrand: counted tracks to sample (None or negative: all of them). n_rejected:
+    rejected tracks, spread evenly over the rejection reasons; with near_miss, only
+    tracks that fail exactly one test (other than too_short and ignition_flash), so the
+    judged rejects are the ones a threshold change would let in.
+    """
     import netCDF4 as nc
 
     with open(os.path.join(results_dir, "summary.json")) as fh:
@@ -199,17 +297,23 @@ def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
     if min_det is None:
         # every confirmed track is eligible: at 10-15 fps a confirmed track can have 2 detections
         min_det = int((results_summary.get("derived") or {}).get("min_hits", 3))
-    tracks = _read_tracks(results_dir)
+    tracks, others = _read_tracks(results_dir)
     rng = random.Random(f"{seed}:{label}")
     fb = [t for t in tracks if t["is_firebrand"] == "1"]
-    picks = [(t, "counted", len(fb)) for t in rng.sample(fb, min(n_firebrand, len(fb)))]
+    n_fb = len(fb) if n_firebrand is None or n_firebrand < 0 else min(n_firebrand, len(fb))
+    picks = [(t, "counted", len(fb)) for t in rng.sample(fb, n_fb)]
     # Rejected tracks, spread evenly over the rejection reasons, so the borderline
-    # ones (low contrast, little movement) are judged and not just obvious junk.
+    # ones are judged and not just obvious junk.
     # Each clip records its stratum and the stratum's size, so score() can weight.
     by_reason = defaultdict(list)
     for t in tracks:
-        if t["is_firebrand"] != "1" and t["n_det"] >= min_det:
-            by_reason[t["reject_reason"]].append(t)
+        if t["is_firebrand"] == "1" or t["n_det"] < min_det:
+            continue
+        if near_miss:
+            fails = [f for f in (t.get("fails") or "").split(";") if f]
+            if len(fails) != 1 or fails[0] in ("too_short", "ignition_flash"):
+                continue
+        by_reason[t["reject_reason"]].append(t)
     reasons = sorted(by_reason)
     quota = {r: 0 for r in reasons}
     left = n_rejected
@@ -218,8 +322,9 @@ def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
             if left > 0 and quota[r] < len(by_reason[r]):
                 quota[r] += 1
                 left -= 1
+    prefix = "near_miss:" if near_miss else "rejected:"
     for r in reasons:
-        picks += [(t, "rejected:" + r, len(by_reason[r])) for t in rng.sample(by_reason[r], quota[r])]
+        picks += [(t, prefix + r, len(by_reason[r])) for t in rng.sample(by_reason[r], quota[r])]
     sampled = defaultdict(int)
     for _, stratum, _ in picks:
         sampled[stratum] += 1
@@ -227,7 +332,11 @@ def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
     random.SystemRandom().shuffle(picks)
 
     clips_dir = os.path.join(_public_dir(batch_dir), "clips")
+    sheets_dir = os.path.join(batch_dir, "sheets")
     os.makedirs(clips_dir, exist_ok=True)
+    if sheets:
+        os.makedirs(sheets_dir, exist_ok=True)
+    zone = _zone_for(results_dir, results_summary) if sheets else None
     man_path = os.path.join(batch_dir, "manifest.json")
     manifest = json.load(open(man_path)) if os.path.exists(man_path) else {"clips": []}
     manifest.setdefault("nonce", secrets.token_hex(8))
@@ -244,18 +353,20 @@ def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
             cid = _new_id(taken)
             taken.add(cid)
             png, ctx = os.path.join(clips_dir, cid + ".png"), os.path.join(clips_dir, cid + "_ctx.jpg")
-            info = _render(var, t, n_frames, png, ctx)
+            info = _render(var, t, n_frames, png, ctx, others)
             _flatten_time(png)
             _flatten_time(ctx)
+            if sheets:
+                _render_sheet(var, t, fps, os.path.join(sheets_dir, cid + ".jpg"), zone)
             new_clips.append({
                 "id": cid, "fps": fps, **info,
                 # hidden from the reviewer; used only by score()
                 "label": label, "track_id": t["track_id"],
                 "pipeline_firebrand": t["is_firebrand"] == "1",
-                "reject_reason": t["reject_reason"],
+                "reject_reason": t["reject_reason"], "fails": t.get("fails", ""),
                 "stratum": stratum, "stratum_population": population, "stratum_sampled": sampled[stratum],
                 "features": {k: _num(t.get(k)) for k in FEATURES},
-                "point_data": t["point_data"],   # [frame, x, y, max_c, contrast_c, hot_frac]
+                "point_data": t["point_data"],   # [frame, x, y, max_c, contrast_c, hot_frac, zone_dist_px]
             })
     finally:
         ds.close()
@@ -267,11 +378,12 @@ def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
         "params_hash": results_summary.get("params_hash"),
         "tracking_code_version": results_summary.get("tracking_code_version"),
         "min_det": min_det,
+        "near_miss": near_miss,
     }
     _write_json_atomic(man_path, manifest)
     for c in old:
-        for suffix in (".png", "_ctx.jpg"):
-            path = os.path.join(clips_dir, c["id"] + suffix)
+        for path in (os.path.join(clips_dir, c["id"] + ".png"), os.path.join(clips_dir, c["id"] + "_ctx.jpg"),
+                     os.path.join(sheets_dir, c["id"] + ".jpg")):
             if os.path.exists(path):
                 os.remove(path)
     write_page(batch_dir)
@@ -296,6 +408,7 @@ canvas { display:block; image-rendering:pixelated; width:384px; height:384px; ma
 .q { font-size:16px; margin:14px 0 8px; }
 .btns button { font:inherit; padding:10px 18px; margin:0 8px 8px 0; border:0; border-radius:6px; cursor:pointer; color:#111; font-weight:600; }
 .y { background:var(--yes); } .n { background:var(--no); } .u { background:var(--uns); }
+.p { background:#6ea8fe; } .g { background:#c9a0ff; }
 .nav button { font:inherit; padding:6px 12px; margin-right:6px; background:#2c3038; color:var(--fg); border:0; border-radius:6px; cursor:pointer; }
 .state { color:var(--mut); font-size:13px; }
 .done { font-weight:700; }
@@ -305,8 +418,10 @@ kbd { background:#2c3038; border-radius:4px; padding:1px 6px; font-size:12px; }
 </style></head><body><main>
 <h1>Is this a firebrand leaving the sample?</h1>
 <p class="sub">Each clip follows one track the pipeline found. Answer for the object the cyan ring follows.
-<kbd>y</kbd> firebrand · <kbd>n</kbd> not (flame, hot gas, glare, burner, noise) · <kbd>u</kbd> unsure ·
-<kbd>←</kbd><kbd>→</kbd> move · <kbd>space</kbd> replay · <kbd>m</kbd> ring on/off</p>
+White dots mark the other objects the pipeline tracked, all drawn the same way; a firebrand without a dot was missed.<br>
+<kbd>y</kbd> firebrand in flight · <kbd>n</kbd> not (flame, hot gas, glare, burner, noise) ·
+<kbd>p</kbd> partly (a firebrand for only part of the clip) · <kbd>g</kbd> an ember, but not flying (lying or rolling on the rig or floor) ·
+<kbd>u</kbd> unsure · <kbd>←</kbd><kbd>→</kbd> move · <kbd>space</kbd> replay · <kbd>m</kbd> ring on/off · <kbd>o</kbd> dots on/off</p>
 <div class="bar"><div id="prog"></div></div>
 <div class="row">
   <div class="card"><canvas id="cv" width="192" height="192"></canvas></div>
@@ -314,7 +429,8 @@ kbd { background:#2c3038; border-radius:4px; padding:1px 6px; font-size:12px; }
     <p class="state" id="meta"></p></div>
 </div>
 <p class="q" id="ans"></p>
-<div class="btns"><button class="y" data-v="y">Yes · firebrand</button><button class="n" data-v="n">No</button><button class="u" data-v="u">Unsure</button></div>
+<div class="btns"><button class="y" data-v="y">Yes · firebrand</button><button class="n" data-v="n">No</button>
+<button class="p" data-v="p">Partly</button><button class="g" data-v="g">Ember, not flying</button><button class="u" data-v="u">Unsure</button></div>
 <div class="nav"><button id="prev">← Previous</button><button id="next">Next →</button>
 <button id="dl">Download verdicts.json</button> <span class="state" id="count"></span></div>
 </main>
@@ -323,7 +439,8 @@ const M = __MANIFEST__;
 const KEY = "fta-review-" + M.nonce;   // random per batch: answers never carry over to another batch
 let V = {}; try { V = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) {}
 let pos = M.clips.findIndex(c => !(c.id in V)); if (pos < 0) pos = 0;
-let showMark = true, timer = null, img = new Image();
+let showMark = true, showDots = true, timer = null, img = new Image();
+const NAMES = {y:"Yes", n:"No", p:"Partly", g:"Ember, not flying", u:"Unsure"};
 const cv = document.getElementById("cv"), g = cv.getContext("2d");
 function save() { try { localStorage.setItem(KEY, JSON.stringify(V)); } catch (e) {} }
 function show() {
@@ -332,7 +449,7 @@ function show() {
   document.getElementById("ctx").src = "clips/" + c.id + "_ctx.jpg";
   document.getElementById("meta").textContent = "Clip " + (pos + 1) + " of " + M.clips.length + " · " + c.frames.length + " frames at " + c.fps + " fps (" + (c.frames.length * (c.frames[1] - c.frames[0] || 1) / c.fps).toFixed(1) + " s)";
   const v = V[c.id];
-  document.getElementById("ans").innerHTML = v ? "Your answer: <span class='done'>" + {y:"Yes",n:"No",u:"Unsure"}[v] + "</span>" : "No answer yet";
+  document.getElementById("ans").innerHTML = v ? "Your answer: <span class='done'>" + NAMES[v] + "</span>" : "No answer yet";
   const n = M.clips.filter(c => c.id in V).length;
   document.getElementById("count").textContent = n + " of " + M.clips.length + " answered";
   document.getElementById("prog").style.width = (100 * n / M.clips.length) + "%";
@@ -346,6 +463,7 @@ function play() {
     g.clearRect(0, 0, 192, 192);
     g.drawImage(img, q * c.tile, r * c.tile, c.tile, c.tile, 0, 0, 192, 192);
     const m = c.marks[k];
+    if (showDots && c.others) { g.fillStyle = "#ffffff"; for (const o of c.others[k] || []) { g.beginPath(); g.arc(o[0], o[1], 2, 0, 2 * Math.PI); g.fill(); } }
     if (showMark && m) { g.strokeStyle = "#00e5ff"; g.lineWidth = 1.5; g.beginPath(); g.arc(m[0], m[1], 9, 0, 2 * Math.PI); g.stroke(); }
     k++; if (k >= c.n_tiles) k = 0;
   }, dt);
@@ -361,18 +479,19 @@ document.getElementById("dl").onclick = () => {
 document.addEventListener("keydown", e => {
   // a held key or a browser shortcut must not answer clips the reviewer has not seen
   if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
-  if (e.key === "y" || e.key === "n" || e.key === "u") answer(e.key);
+  if (Object.prototype.hasOwnProperty.call(NAMES, e.key)) answer(e.key);
   else if (e.key === "ArrowLeft") { if (pos > 0) pos--; show(); }
   else if (e.key === "ArrowRight") { if (pos < M.clips.length - 1) pos++; show(); }
   else if (e.key === " ") { e.preventDefault(); play(); }
   else if (e.key === "m") showMark = !showMark;
+  else if (e.key === "o") showDots = !showDots;
 });
 show();
 </script></body></html>
 """
 
 # what the reviewer's page may carry; everything else in the manifest stays hidden
-_PUBLIC_KEYS = ("id", "fps", "frames", "marks", "n_tiles", "tile", "cols", "crop_px")
+_PUBLIC_KEYS = ("id", "fps", "frames", "marks", "others", "n_tiles", "tile", "cols", "crop_px")
 
 
 def _check_opaque(clips) -> None:
@@ -411,6 +530,10 @@ def merge_batches(out_dir: str, parts: List[str]) -> int:
                 dst = os.path.join(clips_out, c["id"] + suffix)
                 shutil.copyfile(os.path.join(_public_dir(part), "clips", c["id"] + suffix), dst)
                 _flatten_time(dst)
+            sheet = os.path.join(part, "sheets", c["id"] + ".jpg")
+            if os.path.exists(sheet):
+                os.makedirs(os.path.join(out_dir, "sheets"), exist_ok=True)
+                shutil.copyfile(sheet, os.path.join(out_dir, "sheets", c["id"] + ".jpg"))
             clips.append(c)
     random.SystemRandom().shuffle(clips)
     _write_json_atomic(out_man, {"nonce": nonce or secrets.token_hex(8), "parts": part_info, "clips": clips})
@@ -428,7 +551,7 @@ def write_page(batch_dir: str) -> str:
         _write_json_atomic(man_path, man)
     # A fresh random order every time the page is written: clips are sampled in class
     # blocks, and a fixed shuffle would put the same classes at the same positions.
-    public = [{k: c[k] for k in _PUBLIC_KEYS} for c in man["clips"]]
+    public = [{k: c[k] for k in _PUBLIC_KEYS if k in c} for c in man["clips"]]
     random.SystemRandom().shuffle(public)
     html = _PAGE.replace("__MANIFEST__", json.dumps({"nonce": man["nonce"], "clips": public}))
     os.makedirs(_public_dir(batch_dir), exist_ok=True)
@@ -440,6 +563,29 @@ def write_page(batch_dir: str) -> str:
     return path
 
 
+VERDICTS = ("y", "n", "p", "g", "u")
+
+
+def _cluster_ci(pairs, reps: int = 2000, seed: int = 1):
+    """95 % interval for a pooled share, resampling whole recordings (tracks within one
+    recording are not independent). pairs: (recording, 1 if real else 0)."""
+    by = defaultdict(list)
+    for lab, v in pairs:
+        by[lab].append(v)
+    labs = sorted(by)
+    if len(labs) < 2:
+        return None
+    rng = random.Random(seed)
+    est = []
+    for _ in range(reps):
+        pick = [by[rng.choice(labs)] for _ in labs]
+        n = sum(len(x) for x in pick)
+        if n:
+            est.append(sum(sum(x) for x in pick) / n)
+    est.sort()
+    return [round(est[int(0.025 * len(est))], 3), round(est[int(0.975 * len(est)) - 1], 3)]
+
+
 def score(batch_dir: str, verdicts_path: str) -> Dict:
     manifest = json.load(open(os.path.join(batch_dir, "manifest.json")))
     man = {c["id"]: c for c in manifest["clips"]}
@@ -449,15 +595,22 @@ def score(batch_dir: str, verdicts_path: str) -> Dict:
                          f"(nonce {blob.get('nonce')!r}, batch {manifest.get('nonce')!r})")
     V = blob.get("verdicts", {})
     unknown = sorted(cid for cid in V if cid not in man)
-    invalid = sorted(cid for cid, v in V.items() if cid in man and v not in ("y", "n", "u"))
-    valid = {cid: v for cid, v in V.items() if cid in man and v in ("y", "n", "u")}
+    invalid = sorted(cid for cid, v in V.items() if cid in man and v not in VERDICTS)
+    valid = {cid: v for cid, v in V.items() if cid in man and v in VERDICTS}
     unanswered = sorted(cid for cid in man if cid not in valid)
 
     def tally(rows):
         y = sum(1 for r in rows if r == "y")
         n = sum(1 for r in rows if r == "n")
+        pa = sum(1 for r in rows if r == "p")
+        g = sum(1 for r in rows if r == "g")
         u = sum(1 for r in rows if r == "u")
-        return {"yes": y, "no": n, "unsure": u, "share_yes": round(y / (y + n), 3) if (y + n) else None}
+        judged = y + n + pa + g
+        # strict: only a clean firebrand in flight counts; lenient: a partly-right track
+        # (firebrand for part of the clip) still counts a real firebrand
+        return {"yes": y, "no": n, "partly": pa, "not_flying": g, "unsure": u,
+                "share_yes": round(y / judged, 3) if judged else None,
+                "share_yes_or_partly": round((y + pa) / judged, 3) if judged else None}
 
     fb, rej = defaultdict(list), defaultdict(list)
     by_reason = defaultdict(list)
@@ -516,6 +669,10 @@ def score(batch_dir: str, verdicts_path: str) -> Dict:
         "invalid_values": invalid,
         "raw_sample": {
             "precision_of_counted_firebrands": tally([v for vs in fb.values() for v in vs]),
+            "precision_ci95_by_recording": _cluster_ci([(lab, int(v == "y")) for lab, vs in fb.items()
+                                                        for v in vs if v in ("y", "n", "p", "g")]),
+            "precision_lenient_ci95_by_recording": _cluster_ci([(lab, int(v in ("y", "p"))) for lab, vs in fb.items()
+                                                                for v in vs if v in ("y", "n", "p", "g")]),
             "real_firebrands_among_rejected": tally([v for vs in rej.values() for v in vs]),
             "note": "unweighted shares of a stratified sample; see weighted for population estimates",
         },

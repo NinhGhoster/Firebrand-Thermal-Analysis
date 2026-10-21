@@ -1,12 +1,16 @@
 """Write one recording's outputs, and rebuild tracks from them.
 
-    summary.json          firebrand count, ignition, scale, parameters, code version
+    summary.json          firebrand count, ignition, scale, flame zone, parameters, code version
     tracks.csv            one row per confirmed track (firebrand or rejected, with reason)
     track_points.csv.gz   trajectory and temperature history: one row per detection of a track
-    detections.csv.gz     every detection after ignition, tracked or not
+    detections.csv.gz     every detection after ignition, tracked or not, and whether in the flame zone
     hot_fraction.npz      share of post-ignition frames each pixel was >= the hot threshold
     hot_fraction.png      the same, as a picture (yellow = hot in 50 %+ of frames)
+    zone.png              the hot fraction with the flame zone outlined in red
     labels_coco.json      boxes for firebrand tracks only, for training a detector
+
+A firebrand can be two tracks (it dipped back into the flame zone and left again):
+firebrand_count counts firebrand_ids, firebrand_tracks counts tracks.
 """
 
 from __future__ import annotations
@@ -25,18 +29,21 @@ import cv2
 import numpy as np
 
 TRACK_COLS = [
-    "track_id", "is_firebrand", "reject_reason", "n_det", "n_cold", "n_evidence", "max_contrast_c",
+    "track_id", "firebrand_id", "is_firebrand", "reject_reason", "fails", "n_det", "n_evidence",
+    "max_contrast_c", "smooth_px", "median_step_px", "crowding", "start_after_ignition_s",
+    "exit_zone_dist_px", "end_zone_dist_px", "exit_hot_frac",
     "start_frame", "end_frame", "start_time_s", "end_time_s", "duration_s",
-    "launch_x_px", "launch_y_px", "launch_x_m", "launch_y_m", "end_x_m", "end_y_m",
+    "exit_x_px", "exit_y_px", "exit_x_m", "exit_y_m", "end_x_m", "end_y_m",
     "displacement_m", "path_length_m", "turn_deg",
-    "launch_speed_mps", "launch_dir_deg", "mean_speed_mps", "max_speed_mps", "vert_accel_mps2",
+    "exit_speed_mps", "exit_dir_deg", "mean_speed_mps", "max_speed_mps", "vert_accel_mps2",
     "peak_c", "mean_c", "cooling_c_per_s", "mean_area_px", "area_jump", "edge_grad",
-    "launch_t_s", "launch_fit", "launch_span_s",
+    "exit_t_s", "exit_fit", "exit_span_s",
 ]
-POINT_COLS = ["track_id", "is_firebrand", "frame", "time_s", "x_px", "y_px", "x_m", "y_m",
-              "vx_mps", "vy_mps", "speed_mps", "max_c", "mean_c", "contrast_c", "edge_grad", "cold", "area_px"]
+POINT_COLS = ["track_id", "firebrand_id", "is_firebrand", "frame", "time_s", "x_px", "y_px", "x_m", "y_m",
+              "vx_mps", "vy_mps", "speed_mps", "max_c", "mean_c", "contrast_c", "edge_grad",
+              "zone_dist_px", "crowding", "area_px"]
 DET_COLS = ["frame", "time_s", "track_id", "x_px", "y_px", "bbox_x", "bbox_y", "bbox_w", "bbox_h",
-            "area_px", "max_c", "mean_c", "median_c", "bg_c", "bg_t_c", "edge_grad", "excess_c_px"]
+            "area_px", "max_c", "mean_c", "median_c", "bg_c", "bg_t_c", "edge_grad", "excess_c_px", "in_zone"]
 # Parameters that set the pixel scale: always taken from the run, even with --from-defaults.
 SCALE_PARAMS = ("m_per_px", "lens_hfov_deg")
 # Parameters used by the detection pass; changing any of them needs a new `run`.
@@ -119,11 +126,13 @@ def _write_tables(out_dir: str, res: Dict, fps: float, width: int, height: int, 
         for t in tracks:
             s = t["_series"]
             for k in range(t["n_det"]):
-                w.writerow([t["track_id"], _fmt(t["is_firebrand"]), int(s["frame"][k]), _fmt(s["t"][k]),
+                w.writerow([t["track_id"], _fmt(t.get("firebrand_id")), _fmt(t["is_firebrand"]), int(s["frame"][k]),
+                            _fmt(s["t"][k]),
                             _fmt(s["x_px"][k], 2), _fmt(s["y_px"][k], 2), _fmt(s["X"][k]), _fmt(s["Y"][k]),
                             _fmt(s["vx"][k]), _fmt(s["vy"][k]), _fmt(s["speed"][k]),
                             _fmt(s["max_c"][k], 2), _fmt(s["mean_c"][k], 2), _fmt(s["contrast"][k], 2),
-                            _fmt(s["edge_grad"][k], 2), _fmt(bool(s["cold"][k])), int(s["area"][k])])
+                            _fmt(s["edge_grad"][k], 2), _fmt(s["zone_dist"][k], 1), _fmt(s["crowd"][k], 0),
+                            int(s["area"][k])])
 
     with gzip.open(st.path("detections.csv.gz"), "wt", newline="") as fh:
         w = csv.writer(fh)
@@ -134,7 +143,7 @@ def _write_tables(out_dir: str, res: Dict, fps: float, width: int, height: int, 
                         _fmt(d["cx"], 2), _fmt(d["cy"], 2), x, y, bw, bh, d["area"],
                         _fmt(d["max_c"], 2), _fmt(d["mean_c"], 2), _fmt(d["median_c"], 2),
                         _fmt(d["bg_c"], 2), _fmt(d.get("bg_t_c"), 2), _fmt(d.get("edge_grad"), 2),
-                        _fmt(d["excess"], 1)])
+                        _fmt(d["excess"], 1), _fmt(bool(d.get("in_zone", False)))])
 
     fb_ids = {t["track_id"] for t in tracks if t["is_firebrand"]}
     safe = (label or "recording").replace("/", "__")
@@ -149,14 +158,26 @@ def _write_tables(out_dir: str, res: Dict, fps: float, width: int, height: int, 
                            "width": width, "height": height})
         x, y, bw, bh = d["bbox"]
         anns.append({"id": len(anns) + 1, "image_id": seen[fr], "category_id": 1,
-                     "bbox": [x, y, bw, bh], "area": d["area"], "iscrowd": 0, "track_id": d["track_id"]})
+                     "bbox": [x, y, bw, bh], "area": d["area"], "iscrowd": 0, "track_id": d["track_id"],
+                     "firebrand_id": d.get("firebrand_id")})
     with open(st.path("labels_coco.json"), "w") as fh:
         json.dump({"info": {"label": label, "fps": fps, "width": width, "height": height,
                             "frame_index": "0-based frame of the Level 1.1 NetCDF",
                             "file_name": "<label with / as __>/frame_<6-digit frame>.png, for extracted frames",
                             "image_ids": "1-based and per file: remap when merging recordings",
-                            "note": "thermal frame boxes [x, y, w, h] of firebrand tracks only"},
+                            "note": "thermal frame boxes [x, y, w, h] of firebrand tracks only, outside the "
+                                    "flame zone (inside it a firebrand cannot be told from flame)"},
                    "images": images, "annotations": anns, "categories": [{"id": 1, "name": "firebrand"}]}, fh)
+
+
+def _write_zone_png(path: str, hot_frac: np.ndarray, zone: Optional[np.ndarray]) -> None:
+    """The hot fraction (yellow = hot in 50 %+ of frames) with the flame zone outlined in red."""
+    pic = cv2.applyColorMap((np.clip(hot_frac.astype(np.float32) / 0.5, 0, 1) * 255).astype(np.uint8),
+                            cv2.COLORMAP_VIRIDIS)
+    if zone is not None and zone.any():
+        cs, _ = cv2.findContours(zone.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        cv2.drawContours(pic, cs, -1, (0, 0, 255), 2)
+    cv2.imwrite(path, pic)
 
 
 def params_hash(d: Dict, keys=None) -> str:
@@ -172,7 +193,11 @@ def _track_summary(res: Dict, p) -> Dict:
             reasons[t["reject_reason"]] = reasons.get(t["reject_reason"], 0) + 1
     pd = p.to_dict()
     return {
-        "firebrand_count": sum(1 for t in tracks if t["is_firebrand"]),
+        "firebrand_count": len({t["firebrand_id"] for t in tracks if t["is_firebrand"]}),
+        "firebrand_tracks": sum(1 for t in tracks if t["is_firebrand"]),
+        "count_note": "firebrands seen leaving the flame zone (summary derived.zone_threshold, zone.png); "
+                      "firebrands that stay inside it while in view, such as most that fall straight "
+                      "down through the flame, are not counted",
         "confirmed_tracks": len(tracks),
         "rejected_by_reason": reasons,
         "detections": len(res["detections"]),
@@ -194,6 +219,7 @@ def write_outputs(out_dir: str, res: Dict, rec, p, label: str = "",
         pic = cv2.applyColorMap((np.clip(hf.astype(np.float32) / 0.5, 0, 1) * 255).astype(np.uint8),
                                 cv2.COLORMAP_VIRIDIS)
         cv2.imwrite(st.path("hot_fraction.png"), pic)
+        _write_zone_png(st.path("zone.png"), hf, res.get("zone"))
         _write_summary(st, _run_summary(res, rec, p, label, start, stop))
         st.commit()
     except BaseException:
@@ -234,7 +260,7 @@ def _run_summary(res: Dict, rec, p, label: str, start: int, stop: Optional[int])
         "runtime_s": round(res["seconds"], 1),
         "nc_attrs": getattr(rec, "attrs", {}),
     }
-    summary["short_post_ignition"] = bool(ign is not None and res["n_post"] < p.env_min_s * fps)
+    summary["short_post_ignition"] = bool(ign is not None and res["n_post"] < p.zone_min_s * fps / p.zone_frac)
     return summary
 
 
@@ -314,10 +340,10 @@ def retrack(out_dir: str, overrides: Optional[Dict] = None, from_defaults: bool 
         n_post = int(summary["last_frame"]) - int(ign) + 1    # outputs from before this was recorded
     n_post = int(n_post or 0)
     if ign is None:
-        tracks, dv = [], p.derived(fps, s)
-        dv["cold_space_share"] = None
+        tracks, dv, zone = [], p.derived(fps, s), None
+        dv["zone_share"] = None
     else:
-        tracks, dv = track_classify(dets_by_frame, (ign, summary["last_frame"]), fps, s, hot_frac, n_post, p)
+        tracks, dv, zone = track_classify(dets_by_frame, (ign, summary["last_frame"]), fps, s, hot_frac, n_post, p)
     res = {"tracks": tracks, "detections": [d for c in sorted(dets_by_frame) for d in dets_by_frame[c]],
            "derived": dv}
     for stale in ("gate_new_px", "cold_space_share"):       # superseded by derived.*
@@ -325,12 +351,13 @@ def retrack(out_dir: str, overrides: Optional[Dict] = None, from_defaults: bool 
     summary.update(_track_summary(res, p))
     summary["m_per_px"] = s
     summary["post_ignition_frames"] = n_post
-    summary["short_post_ignition"] = bool(ign is not None and n_post < p.env_min_s * fps)
+    summary["short_post_ignition"] = bool(ign is not None and n_post < p.zone_min_s * fps / p.zone_frac)
     summary["retracked"] = True
     st = _Staged(out_dir)
     try:
         _write_tables(out_dir, res, fps, summary["width"], summary["height"],
                       summary.get("label") or summary["source_file"], st)
+        _write_zone_png(st.path("zone.png"), hot_frac, zone)
         _write_summary(st, summary)
         st.commit()
     except BaseException:

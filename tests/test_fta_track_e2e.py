@@ -16,16 +16,20 @@ from fta_track.review import make_batch, score  # noqa: E402
 from tests.test_fta_track import H, W, _scene  # noqa: E402
 
 
+N_FRAMES = 220
+
+
 @pytest.fixture
 def recording(tmp_path):
-    """A 150-frame recording: a sample lights at frame 10, one ember launches at frame 40."""
+    """A 220-frame recording: a sample lights at frame 10, one ember launches at frame 110,
+    past the 3 s the burner's lighting flash is given."""
     path = tmp_path / "rec.nc"
     ds = nc.Dataset(path, "w")
-    ds.createDimension("frame", 150)
+    ds.createDimension("frame", N_FRAMES)
     ds.createDimension("y", H)
     ds.createDimension("x", W)
     v = ds.createVariable("temperature", "f4", ("frame", "y", "x"), chunksizes=(10, H, W), zlib=True)
-    for i, f in _scene(150, sample_from=10, embers=[(40, 160, 175, 3.0, -5.0, 900.0, -3.0, 2)]):
+    for i, f in _scene(N_FRAMES, sample_from=10, embers=[(110, 160, 175, 3.0, -5.0, 900.0, -3.0, 2)]):
         v[i] = f
     ds.setncatts({"frame_rate": 30.0, "distance": 2.0, "threshold_degC": 299.0,
                   "emissivity_original": 0.94})
@@ -82,8 +86,12 @@ def test_review_page_is_blind_and_scores(recording, tmp_path):
     n = make_batch(str(res), recording, str(batch), "branchlet/X/150kW/Twigs/1")
     assert n >= 1
     html = open(batch / "public" / "index.html").read()
-    for leak in ("pipeline_firebrand", "reject_reason", "is_firebrand", "features", "n_evidence", "point_data"):
+    for leak in ("pipeline_firebrand", "reject_reason", "is_firebrand", "features", "n_evidence", "point_data",
+                 "fails", "smooth_px", "stratum"):
         assert leak not in html
+    assert '"others"' in html                                  # the neutral dots travel with every clip
+    assert "sheets" not in os.listdir(batch / "public")
+    assert all(os.path.exists(batch / "sheets" / (c["id"] + ".jpg")) for c in json.load(open(batch / "manifest.json"))["clips"])
     man = json.load(open(batch / "manifest.json"))
     for c in man["clips"]:
         assert os.path.exists(batch / "public" / "clips" / (c["id"] + ".png"))
@@ -226,7 +234,7 @@ def test_aggregate_joins_continuation_segments(recording, tmp_path):
     assert a["experiment"] == b["experiment"] == "fibrous_bark/E_radiata/High/150kW/S16"
     assert (a["section"], a["segment"], b["segment"]) == ("S16", "a", "b")
     assert rows["fibrous_bark/E_radiata/High/150kW/S4"]["segment"] == ""
-    assert float(a["duration_s"]) == pytest.approx(150 / 30.0)   # frames read, not the --stop asked for
+    assert float(a["duration_s"]) == pytest.approx(N_FRAMES / 30.0)   # frames read, not the --stop asked for
 
 
 def test_plain_retrack_of_an_old_summary_is_refused(recording, tmp_path):
@@ -332,3 +340,68 @@ def test_partial_coverage_is_left_out_of_the_weighted_recall(tmp_path):
     w = score(str(batch), str(vpath))["weighted"]
     assert w["recordings_included"] == ["A"] and "B" in w["recordings_excluded"]
     assert w["estimated_recall_among_confirmed_tracks"] == 1.0      # A alone: 20 real counted, 0 real rejected
+
+
+def test_partly_and_not_flying_verdicts_are_scored(recording, tmp_path):
+    res = tmp_path / "res"
+    FTA_CLI.main(["run", recording, "--out", str(res), "--set", "m_per_px=0.002"])
+    batch = tmp_path / "batch"
+    make_batch(str(res), recording, str(batch), "branchlet/X/150kW/Twigs/1", n_firebrand=None)
+    man = json.load(open(batch / "manifest.json"))
+    counted = [c for c in man["clips"] if c["pipeline_firebrand"]]
+    assert counted
+    V = {c["id"]: ("p" if c in counted else "g") for c in man["clips"]}
+    vpath = tmp_path / "verdicts.json"
+    json.dump({"nonce": man["nonce"], "verdicts": V}, open(vpath, "w"))
+    out = score(str(batch), str(vpath))
+    p = out["raw_sample"]["precision_of_counted_firebrands"]
+    assert out["answered"] == len(man["clips"]) and out["invalid_values"] == []
+    assert (p["yes"], p["partly"], p["share_yes"], p["share_yes_or_partly"]) == (0, len(counted), 0.0, 1.0)
+
+
+def test_retrack_keeps_every_detection_and_marks_the_zone(recording, tmp_path):
+    out = tmp_path / "res"
+    FTA_CLI.main(["run", recording, "--out", str(out), "--set", "m_per_px=0.002"])
+
+    def rows():
+        with gzip.open(out / "detections.csv.gz", "rt") as fh:
+            return list(csv.DictReader(fh))
+    before = rows()
+    assert any(r["in_zone"] == "1" for r in before) and any(r["in_zone"] == "0" for r in before)
+    FTA_CLI.main(["retrack", str(out), "--set", "zone_frac=0.5"])
+    after = rows()
+    assert len(after) == len(before)
+    key = lambda r: (r["frame"], r["x_px"], r["y_px"], r["max_c"])
+    assert sorted(map(key, after)) == sorted(map(key, before))
+    assert os.path.exists(out / "zone.png")
+    s = json.load(open(out / "summary.json"))
+    assert s["derived"]["zone_threshold"] == 0.5 and "count_note" in s
+
+
+def test_infall_finds_an_ember_falling_through_the_flame(tmp_path):
+    """A flickering flame band with an ember dropping through it: the ember is a candidate."""
+    from fta_track.infall import write_infall_candidates
+    rng = np.random.default_rng(2)
+    path = tmp_path / "fall.nc"
+    ds = nc.Dataset(path, "w")
+    ds.createDimension("frame", N_FRAMES)
+    ds.createDimension("y", H)
+    ds.createDimension("x", W)
+    v = ds.createVariable("temperature", "f4", ("frame", "y", "x"), chunksizes=(10, H, W), zlib=True)
+    for i, f in _scene(N_FRAMES, sample_from=10, embers=[(120, 60, 100, 0.0, 3.0, 800.0, 0.0, 2)]):
+        if i >= 10:                                   # flame flickering over a wide band, rows 90-178
+            for _ in range(40):
+                by, bx = rng.integers(90, 176), rng.integers(20, 300)
+                f[by:by + 3, bx:bx + 3] = np.maximum(f[by:by + 3, bx:bx + 3], 320.0)
+        v[i] = f
+    ds.setncatts({"frame_rate": 30.0, "distance": 2.0, "threshold_degC": 299.0, "emissivity_original": 0.94})
+    ds.close()
+    res = tmp_path / "res"
+    FTA_CLI.main(["run", str(path), "--out", str(res), "--set", "m_per_px=0.002", "--set", "zone_min_s=0.1"])
+    n = write_infall_candidates(str(res), str(tmp_path / "infall"), {"m_per_px": 0.002, "zone_min_s": 0.1})
+    rows = list(csv.DictReader(open(tmp_path / "infall" / "tracks.csv")))
+    assert n == len(rows) >= 1
+    assert any(abs(float(r["exit_x_px"]) - 61) < 4 for r in rows), [(r["exit_x_px"], r["exit_y_px"]) for r in rows]
+    batch = tmp_path / "batch"
+    assert make_batch(str(tmp_path / "infall"), str(path), str(batch), "branchlet/X/150kW/Twigs/1/infall",
+                      n_firebrand=None, n_rejected=0) == n

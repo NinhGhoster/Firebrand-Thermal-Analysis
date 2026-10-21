@@ -11,7 +11,11 @@ detection is accepted when the Mahalanobis distance of the innovation,
 d^2 = nu' S^-1 nu with S = H P H' + R, is within the chi-square gate (or within
 `gate_floor_px`, so centroid jitter on irregular blobs cannot break a track).
 P grows on every predict, so the region widens by itself while a track coasts
-through missed frames and narrows again once it is re-acquired.
+through missed frames and narrows again once it is re-acquired. Whatever P says, a
+link is also refused when it would mean moving faster than `v_max`: farther from the
+track's last detection than `gate_new_px` per elapsed frame plus `gate_floor_px`.
+Without that cap a coasting track's region grew to ~0.7 m and, among the 5-20 flame
+flickers of a real frame, always found something to take.
 
 Motion model: continuous white-noise acceleration (CWNA). Per axis, the process
 noise over one frame is Q = q [[1/3, 1/2], [1/2, 1]] with q the acceleration
@@ -31,7 +35,9 @@ Deliberately avoids the defects found in firebrand-vision's tracker:
     tracks are reported;
   - any detection, however small, can start a track;
   - a link is refused when the two areas differ by more than `area_ratio_max`,
-    so a gas puff and a speck are never chained together.
+    so a gas puff and a speck are never chained together, or when the two peak
+    temperatures' excesses over the threshold differ by more than `excess_ratio_max`,
+    so a hot ember is never continued by a flicker hovering at the threshold.
 """
 
 from __future__ import annotations
@@ -56,6 +62,7 @@ class _Track:
         self.R = (r * r) * np.eye(2)
         self.points: List[tuple] = [(frame, det)]
         self.area = float(det["area"])
+        self.peak = float(det.get("max_c", np.nan))
         self.hits = 1
         self.misses = 0
         self.public_id: Optional[int] = None
@@ -77,6 +84,7 @@ class _Track:
         self.P = (np.eye(4) - K @ _H) @ self.P
         self.points.append((frame, det))
         self.area = float(det["area"])
+        self.peak = float(det.get("max_c", np.nan))
         self.hits += 1
         self.misses = 0
 
@@ -84,7 +92,8 @@ class _Track:
 class Tracker:
     def __init__(self, gate_new_px: float, q_px: float, r_px: float, chi2_gate: float,
                  gate_floor_px: float, max_misses: int, min_hits: int,
-                 area_ratio_max: float = float("inf")):
+                 area_ratio_max: float = float("inf"), excess_ratio_max: float = float("inf"),
+                 excess_base_c: float = 290.0):
         self.gate_new = float(gate_new_px)
         self.q, self.r = float(q_px), float(r_px)
         self.chi2 = float(chi2_gate)
@@ -92,14 +101,22 @@ class Tracker:
         self.max_misses = int(max_misses)
         self.min_hits = int(min_hits)
         self.area_ratio_max = float(area_ratio_max)
+        self.excess_ratio_max = float(excess_ratio_max)
+        self.excess_base = float(excess_base_c)
         self.live: List[_Track] = []
         self.finished: List[_Track] = []
         self._next_id = 1
 
-    def _cost_row(self, t: _Track, obs: np.ndarray, da: np.ndarray) -> np.ndarray:
+    def _cost_row(self, t: _Track, obs: np.ndarray, da: np.ndarray, dpeak: np.ndarray, frame: int) -> np.ndarray:
         """Cost of linking track t to each detection; _BIG outside its gate."""
         ratio = np.maximum(t.area + 2.0, da) / np.minimum(t.area + 2.0, da)
         size_ok = ratio <= self.area_ratio_max
+        if np.isfinite(t.peak) and np.isfinite(self.excess_ratio_max):
+            et = max(t.peak - self.excess_base, 1.0)
+            ed = np.maximum(dpeak - self.excess_base, 1.0)
+            with np.errstate(invalid="ignore"):
+                warm_ok = ~(np.maximum(et, ed) / np.minimum(et, ed) > self.excess_ratio_max)
+            size_ok = size_ok & warm_ok
         if t.hits < 2:
             dist = np.linalg.norm(obs - t.x[:2], axis=1)
             ok = size_ok & (dist <= self.gate_new)
@@ -109,7 +126,10 @@ class Tracker:
             S = _H @ t.P @ _H.T + t.R
             d2 = np.einsum("ij,jk,ik->i", nu, np.linalg.inv(S), nu)
             dist = np.linalg.norm(nu, axis=1)
-            ok = size_ok & ((d2 <= self.chi2) | (dist <= self.floor))
+            last_frame, last = t.points[-1]
+            reach = self.gate_new * (frame - last_frame) + self.floor
+            jump = np.linalg.norm(obs - np.array([last["cx"], last["cy"]]), axis=1)
+            ok = size_ok & ((d2 <= self.chi2) | (dist <= self.floor)) & (jump <= reach)
             c = d2
         return np.where(ok, c, _BIG)
 
@@ -119,7 +139,8 @@ class Tracker:
             return
         obs = np.array([[dets[i]["cx"], dets[i]["cy"]] for i in free])
         da = np.array([dets[i]["area"] for i in free], dtype=float) + 2.0
-        cost = np.vstack([self._cost_row(self.live[ti], obs, da) for ti in track_idx])
+        dpeak = np.array([dets[i].get("max_c", np.nan) for i in free], dtype=float)
+        cost = np.vstack([self._cost_row(self.live[ti], obs, da, dpeak, frame) for ti in track_idx])
         rows, cols = linear_sum_assignment(cost)
         for r, c in zip(rows, cols):
             if cost[r, c] >= _BIG:

@@ -59,7 +59,8 @@ def velocity_series(t: np.ndarray, X: np.ndarray, Y: np.ndarray, window: int) ->
 
 
 def launch_velocity(t: np.ndarray, X: np.ndarray, Y: np.ndarray, span_s: float):
-    """Velocity at the first detection, and how it was estimated.
+    """Velocity at the first detection, and how it was estimated. Applied to a
+    firebrand's first detection outside the flame zone, this is its exit velocity.
 
     Fitted over every point within span_s of the first, so the fit covers the same
     duration at every frame rate (a fixed number of points would cover 0.4 s at 10 fps
@@ -113,3 +114,36 @@ def vertical_acceleration(t: np.ndarray, Y: np.ndarray) -> Optional[float]:
     tt = np.asarray(t, dtype=float) - float(np.mean(t))
     coeffs = np.polyfit(tt, np.asarray(Y, dtype=float), 2)
     return float(2.0 * coeffs[0])
+
+
+def smoothness_px(frames, x_px, y_px, points: int = 5) -> float:
+    """How far a track strays from a smooth path, in pixels (leave-one-out).
+
+    Each detection is predicted from a quadratic in time fitted, per axis, through the
+    other detections among the `points` nearest it (centred where the track allows),
+    and the result is the median distance between prediction and detection. A solid
+    body under gravity and drag follows a smooth path, so its detections are predicted
+    to within centroid jitter (the pilot's real firebrands: 1-6 px). A centroid hopping
+    between flame flickers is not: its next position is as far from any prediction as
+    its hops are long (the pilot's old flicker chains: medians of 18-31 px). Leaving the
+    point out keeps the statistic sharp when a track has only five detections, as at
+    10 fps, where an in-sample fit would absorb much of a random hop. NaN if the track
+    has fewer than `points` detections.
+    """
+    f = np.asarray(frames, dtype=float)
+    x = np.asarray(x_px, dtype=float)
+    y = np.asarray(y_px, dtype=float)
+    n = len(f)
+    k = max(4, int(points))
+    if n < k:
+        return float("nan")
+    res = np.empty(n)
+    for i in range(n):
+        lo = max(0, min(i - k // 2, n - k))
+        idx = [j for j in range(lo, lo + k) if j != i]
+        t = f[idx] - f[idx].mean()
+        ti = f[i] - f[idx].mean()
+        px = np.polyfit(t, x[idx], 2)
+        py = np.polyfit(t, y[idx], 2)
+        res[i] = math.hypot(np.polyval(px, ti) - x[i], np.polyval(py, ti) - y[i])
+    return float(np.median(res))

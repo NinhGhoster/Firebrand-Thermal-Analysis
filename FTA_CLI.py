@@ -10,7 +10,12 @@ temperature histories. The desktop app is FirebrandThermalAnalysis.py.
     python FTA_CLI.py retrack results/ --set min_contrast_c=100   # re-track every recording, no NetCDF needed
     python FTA_CLI.py aggregate results/ --out firebrand_counts.csv
     python FTA_CLI.py review-make results/S9 S9.nc --batch review/b1 --label fibrous_bark/E_radiata/High/50kW/S9
+    python FTA_CLI.py review-make results/S9 S9.nc --batch review/b2 --label ... --all-counted --near-miss
     python FTA_CLI.py review-score review/b1 verdicts.json
+
+Only detections outside the flame zone (where the sample, burner and flame are, from
+the recording's own hot fraction) are tracked; the count is of firebrands seen
+leaving it. See fta_track/classify.py.
 
 No GUI, no FLIR SDK: only numpy, scipy, opencv-python-headless and netCDF4.
 """
@@ -67,7 +72,7 @@ def _parse_overrides(pairs) -> dict:
 def cmd_run(a) -> int:
     p = Params(**_parse_overrides(a.set))
     res = run_recording(a.nc, a.out, p, label=a.label or "", qa=a.qa, start=a.start, stop=a.stop)
-    fb = sum(1 for t in res["tracks"] if t["is_firebrand"])
+    fb = len({t["firebrand_id"] for t in res["tracks"] if t["is_firebrand"]})
     print(f"done: {fb} firebrands, {len(res['tracks'])} confirmed tracks, "
           f"{len(res['detections'])} detections, {res['seconds']:.0f} s -> {a.out}")
     return 0
@@ -102,7 +107,7 @@ def cmd_retrack(a) -> int:
             sys.exit(str(e))
     for root in roots:
         res = retrack(root, overrides, a.from_defaults)
-        fb = sum(1 for t in res["tracks"] if t["is_firebrand"])
+        fb = len({t["firebrand_id"] for t in res["tracks"] if t["is_firebrand"]})
         print(f"{os.path.relpath(root, a.results)}: {fb} firebrands, {len(res['tracks'])} confirmed tracks")
     print(f"re-tracked {len(roots)} recording(s)")
     return 0
@@ -155,7 +160,10 @@ def cmd_aggregate(a) -> int:
             frames = min(f1, s["n_frames"]) - f0
         row.update({
             "firebrand_count": s["firebrand_count"],
+            "firebrand_tracks": s.get("firebrand_tracks", s["firebrand_count"]),
             "confirmed_tracks": s["confirmed_tracks"],
+            "zone_share": (s.get("derived") or {}).get("zone_share"),
+            "zone_threshold": (s.get("derived") or {}).get("zone_threshold"),
             "ignition_time_s": s["ignition_time_s"],
             "duration_s": frames / s["fps"] if s.get("fps") else None,
             "short_post_ignition": s.get("short_post_ignition"),
@@ -171,7 +179,8 @@ def cmd_aggregate(a) -> int:
     if not rows:
         sys.exit(f"no summary.json found under {a.results}")
     cols = ["recording", "experiment", "fuel_type", "species", "hazard_rating", "hrr", "structure", "class",
-            "section", "segment", "shape", "length", "run", "firebrand_count", "confirmed_tracks",
+            "section", "segment", "shape", "length", "run", "firebrand_count", "firebrand_tracks",
+            "confirmed_tracks", "zone_share", "zone_threshold",
             "ignition_time_s", "duration_s", "short_post_ignition", "fps", "m_per_px", "params_hash",
             "detection_params_hash", "detection_code_version", "tracking_code_version", "retracked"]
     rows.sort(key=lambda r: r["recording"])
@@ -195,9 +204,17 @@ def cmd_aggregate(a) -> int:
 
 def cmd_review_make(a) -> int:
     from fta_track.review import make_batch
-    n = make_batch(a.results, a.nc, a.batch, a.label, n_firebrand=a.n_firebrand,
-                   n_rejected=a.n_rejected, min_det=a.min_det, seed=a.seed)
+    n = make_batch(a.results, a.nc, a.batch, a.label, n_firebrand=None if a.all_counted else a.n_firebrand,
+                   n_rejected=a.n_rejected, min_det=a.min_det, seed=a.seed, near_miss=a.near_miss,
+                   sheets=not a.no_sheets)
     print(f"{n} clips from {a.label} -> {a.batch}/public/index.html")
+    return 0
+
+
+def cmd_infall(a) -> int:
+    from fta_track.infall import write_infall_candidates
+    n = write_infall_candidates(a.results, a.out, _parse_overrides(a.set), min_drop_m=a.min_drop_m, limit=a.limit)
+    print(f"{n} falling candidates inside the flame zone -> {a.out} (for labelling; not counted)")
     return 0
 
 
@@ -223,8 +240,11 @@ def cmd_review_score(a) -> int:
     w = out["weighted"]
     print(f"answered {out['answered']}, unanswered {out['unanswered']}, "
           f"unknown ids {len(out['unknown_ids'])}, invalid values {len(out['invalid_values'])}")
-    print(f"sample: counted firebrands judged real {p['yes']}/{p['yes'] + p['no']} (unsure {p['unsure']}); "
-          f"rejected tracks judged real {r['yes']}/{r['yes'] + r['no']} (unsure {r['unsure']})")
+    judged = lambda t: t["yes"] + t["no"] + t["partly"] + t["not_flying"]
+    print(f"sample: counted firebrands judged real {p['yes']}/{judged(p)} "
+          f"(partly {p['partly']}, not flying {p['not_flying']}, unsure {p['unsure']}; "
+          f"95 % CI by recording {out['raw_sample']['precision_ci95_by_recording']}); "
+          f"rejected tracks judged real {r['yes']}/{judged(r)} (partly {r['partly']}, unsure {r['unsure']})")
     print(f"weighted: precision {w['estimated_precision']}, recall among confirmed tracks "
           f"{w['estimated_recall_among_confirmed_tracks']} "
           f"({len(w['recordings_included'])} recording(s) fully covered)")
@@ -278,12 +298,25 @@ def main(argv=None) -> int:
     m.add_argument("--batch", required=True, help="batch directory; clips are appended")
     m.add_argument("--label", required=True, help="Level 2 path of the run")
     m.add_argument("--n-firebrand", type=int, default=15, help="tracks counted as firebrands to sample")
+    m.add_argument("--all-counted", action="store_true", help="take every counted track")
+    m.add_argument("--near-miss", action="store_true",
+                   help="sample rejected tracks only among those failing exactly one test")
+    m.add_argument("--no-sheets", action="store_true", help="skip the contact sheets in <batch>/sheets")
     m.add_argument("--n-rejected", type=int, default=12,
                    help="rejected tracks to sample, spread over rejection reasons (3+ detections, so too_short is included)")
     m.add_argument("--min-det", type=int, default=None,
                    help="smallest track to sample (default: the run's own confirmation threshold)")
     m.add_argument("--seed", type=int, default=0)
     m.set_defaults(func=cmd_review_make)
+
+    fi = sub.add_parser("infall", help="smooth falling tracks inside the flame zone, as a results directory "
+                                       "review-make can render (for labelling; never counted)")
+    fi.add_argument("results", help="one recording's results directory")
+    fi.add_argument("--out", required=True, help="directory to write the candidates to")
+    fi.add_argument("--set", action="append", metavar="NAME=VALUE")
+    fi.add_argument("--min-drop-m", type=float, default=0.05, help="how far a candidate must fall (m)")
+    fi.add_argument("--limit", type=int, default=None, help="keep at most this many, spread over the burn")
+    fi.set_defaults(func=cmd_infall)
 
     mg = sub.add_parser("review-merge", help="combine per-recording review batches into one page")
     mg.add_argument("out", help="merged batch directory")
