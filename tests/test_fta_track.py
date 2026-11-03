@@ -13,9 +13,9 @@ H, W, FPS, S = 240, 320, 30.0, 0.002  # frame size, frame rate, metres per pixel
 
 
 def _params(**kw):
-    # The synthetic scenes are a few seconds long: no ignition flash to wait out, unless a
-    # test asks for one.
-    p = Params(m_per_px=S, settle_s=0.0)
+    # The synthetic scenes are a few seconds long and their embers slow (0.3 m/s at this
+    # scale): no ignition flash to wait out and no speed floor, unless a test asks for them.
+    p = Params(m_per_px=S, settle_s=0.0, min_speed_mps=0.1)
     for k, v in kw.items():
         setattr(p, k, v)
     return p
@@ -566,3 +566,37 @@ class TestZoneReentry:
         res = _run(frames(), ignition_min_px=1)
         fb = [t for t in res["tracks"] if t["is_firebrand"]]
         assert len({t["firebrand_id"] for t in fb}) == 2
+
+
+class TestLabelledRules:
+    """The three tests set from the pilot's blind labels: hot at least once, flies, not in a swarm."""
+
+    def _one(self, temp, vx, vy, extra=None, **kw):
+        def frames():
+            for i, f in _scene(90, sample_from=5, embers=[(10, 20, 60, vx, vy, temp, 0.0, 3)]):
+                for (bx, by) in (extra or (lambda i: []))(i):
+                    f[by:by + 3, bx:bx + 3] = 330.0
+                yield i, f
+        res = _run(frames(), **kw)
+        return [t for t in res["tracks"] if t["n_det"] >= 8]
+
+    def test_a_cool_mover_is_too_cool(self):
+        movers = self._one(380.0, 6.0, 0.0, min_speed_mps=0.3)
+        assert movers and all(t["reject_reason"] == "too_cool" for t in movers)
+
+    def test_a_hot_object_creeping_along_is_too_slow(self):
+        movers = self._one(700.0, 1.0, 0.0, min_speed_mps=0.3, min_disp_m=0.01)    # 0.06 m/s
+        assert movers and all(t["reject_reason"] == "too_slow" for t in movers)
+
+    def test_a_hot_ember_in_a_swarm_of_blobs_is_crowded(self):
+        rng = np.random.default_rng(3)
+        def swarm(i):          # four 330 C blobs around the ember's path every frame
+            x = int(20 + 6.0 * max(0, i - 10))
+            return [(min(W - 4, max(0, x + int(rng.integers(-25, 25)))), int(rng.integers(40, 80))) for _ in range(4)]
+        movers = self._one(700.0, 6.0, 0.0, extra=swarm, min_speed_mps=0.3)
+        hot = [t for t in movers if t["peak_c"] >= 690]
+        assert hot and all("crowded" in t["fails"] for t in hot)
+
+    def test_a_hot_fast_ember_in_clear_air_passes_them_all(self):
+        movers = self._one(700.0, 6.0, 0.0, min_speed_mps=0.3)
+        assert len(movers) == 1 and movers[0]["is_firebrand"], [(t["fails"], t["mean_speed_mps"]) for t in movers]

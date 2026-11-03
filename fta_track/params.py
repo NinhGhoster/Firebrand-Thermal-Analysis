@@ -110,10 +110,19 @@ class Params:
     # Crowding: other detections within crowd_radius_px of each of the track's detections,
     # per frame over +/- crowd_window_s (per frame, so it does not grow with the frame
     # rate); the track's median. Flicker comes in swarms; a firebrand in clear air has few
-    # neighbours. Reported always; a test only when max_crowding is set.
+    # neighbours. A test unless max_crowding is None.
     crowd_radius_px: float = 30.0
     crowd_window_s: float = 0.2
-    max_crowding: Optional[float] = None
+    max_crowding: Optional[float] = 0.4
+    # Set from blind labels of the pilot's candidates (fta_track review, 547 contact sheets):
+    # the things outside the flame zone that are not firebrands in flight are mostly glowing
+    # parts of the sample or rig and pieces lying on a surface. They read cooler (median
+    # peak 361-393 C against 560 C for firebrands), sit among other blobs, and move slowly.
+    # A firebrand's peak must reach min_peak_c at least once, and its mean speed
+    # min_speed_mps. Apparent temperatures: a sub-pixel or fast ember reads low, so this
+    # favours resolved firebrands; the review measures what that costs.
+    min_peak_c: float = 450.0
+    min_speed_mps: float = 0.3
     # Turning angle between successive straight_dt_s steps, reported as turn_deg once a
     # track spans straight_min_s (no longer a test: smooth_max_px replaces it).
     straight_dt_s: float = 0.1

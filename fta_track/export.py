@@ -131,7 +131,7 @@ def _write_tables(out_dir: str, res: Dict, fps: float, width: int, height: int, 
                             _fmt(s["x_px"][k], 2), _fmt(s["y_px"][k], 2), _fmt(s["X"][k]), _fmt(s["Y"][k]),
                             _fmt(s["vx"][k]), _fmt(s["vy"][k]), _fmt(s["speed"][k]),
                             _fmt(s["max_c"][k], 2), _fmt(s["mean_c"][k], 2), _fmt(s["contrast"][k], 2),
-                            _fmt(s["edge_grad"][k], 2), _fmt(s["zone_dist"][k], 1), _fmt(s["crowd"][k], 0),
+                            _fmt(s["edge_grad"][k], 2), _fmt(s["zone_dist"][k], 1), _fmt(s["crowd"][k], 2),
                             int(s["area"][k])])
 
     with gzip.open(st.path("detections.csv.gz"), "wt", newline="") as fh:

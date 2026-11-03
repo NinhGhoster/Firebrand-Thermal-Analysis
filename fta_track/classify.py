@@ -17,8 +17,13 @@ track is a firebrand when it
      hotter than what those pixels usually read (contrast >= `min_contrast_c`) and have a
      solid object's hard edge (edge step >= `min_edge_grad`, not a gas parcel fading
      into the plume),
-  5. moves a net `min_disp_m`, and
-  6. if `max_crowding` is set, is not in a swarm of other detections.
+  5. moves a net `min_disp_m`,
+  6. is not in a swarm of other detections (`max_crowding`, per frame),
+  7. is hot at least once: peak >= `min_peak_c`, and
+  8. flies: mean speed >= `min_speed_mps`.
+Tests 6-8 were set from blind labels of the pilot's candidates: what remained outside the
+flame zone but was not a firebrand in flight was mostly glowing parts of the sample or rig
+and pieces lying still, cooler, crowded and slow.
 
 The first failing test is recorded as `reject_reason`, and every failing test in `fails`,
 so a near-miss (one failing test) can be told from junk.
@@ -37,7 +42,8 @@ from .params import Params
 from .units import (launch_velocity, lsq_slope, smoothness_px, to_metres, turning_angle_deg,
                     velocity_series, vertical_acceleration)
 
-REASONS = ("too_short", "ignition_flash", "rough", "low_contrast", "too_little_displacement", "crowded")
+REASONS = ("too_short", "ignition_flash", "rough", "low_contrast", "too_little_displacement", "crowded",
+           "too_cool", "too_slow")
 
 
 def zone_threshold(n_post: int, fps: float, p: Params) -> float:
@@ -168,4 +174,8 @@ def classify(f: Dict, p: Params, dv: Dict) -> Tuple[str, str]:
         fails.append("too_little_displacement")
     if p.max_crowding is not None and math.isfinite(f["crowding"]) and f["crowding"] > p.max_crowding:
         fails.append("crowded")
+    if f["peak_c"] < p.min_peak_c:
+        fails.append("too_cool")
+    if not (f["mean_speed_mps"] >= p.min_speed_mps):     # NaN fails
+        fails.append("too_slow")
     return (fails[0] if fails else ""), ";".join(fails)
