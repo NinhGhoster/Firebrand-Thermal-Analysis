@@ -22,14 +22,14 @@ N_FRAMES = 220
 @pytest.fixture
 def recording(tmp_path):
     """A 220-frame recording: a sample lights at frame 10, one ember launches at frame 110,
-    past the 3 s the burner's lighting flash is given."""
+    past the 3 s the burner's lighting flash is given, at 0.48 m/s (above the speed floor)."""
     path = tmp_path / "rec.nc"
     ds = nc.Dataset(path, "w")
     ds.createDimension("frame", N_FRAMES)
     ds.createDimension("y", H)
     ds.createDimension("x", W)
     v = ds.createVariable("temperature", "f4", ("frame", "y", "x"), chunksizes=(10, H, W), zlib=True)
-    for i, f in _scene(N_FRAMES, sample_from=10, embers=[(110, 160, 175, 3.0, -5.0, 900.0, -3.0, 2)]):
+    for i, f in _scene(N_FRAMES, sample_from=10, embers=[(110, 160, 175, 4.0, -7.0, 900.0, -3.0, 2)]):
         v[i] = f
     ds.setncatts({"frame_rate": 30.0, "distance": 2.0, "threshold_degC": 299.0,
                   "emissivity_original": 0.94})
