@@ -114,15 +114,18 @@ class Params:
     crowd_radius_px: float = 30.0
     crowd_window_s: float = 0.2
     max_crowding: Optional[float] = 0.4
-    # Set from blind labels of the pilot's candidates (fta_track review, 547 contact sheets):
-    # the things outside the flame zone that are not firebrands in flight are mostly glowing
-    # parts of the sample or rig and pieces lying on a surface. They read cooler (median
-    # peak 361-393 C against 560 C for firebrands), sit among other blobs, and move slowly.
-    # A firebrand's peak must reach min_peak_c at least once, and its mean speed
-    # min_speed_mps. Apparent temperatures: a sub-pixel or fast ember reads low, so this
-    # favours resolved firebrands; the review measures what that costs.
+    # Set from blind labels of the pilot's 426 outside-zone candidate tracks (contact sheets
+    # judged by two independent image-only labellers: same verdict on 74 of 82 double-labelled
+    # sheets, kappa 0.91 for firebrand-or-not). What remains outside the flame zone but is not a
+    # firebrand in flight is mostly glowing parts of the sample or rig and pieces lying still:
+    # cooler (median peak 361-393 C against 560 C), crowded by other blobs (0.6-0.7 against
+    # 0.08 per frame nearby) and slow (0.16-0.29 against 0.51 m/s). With these three tests the
+    # pilot kept 48 tracks, 45 of them firebrands in flight (precision 0.94; worst recording
+    # 0.92), and 45 of the 89 labelled firebrands: the ones missed are mostly slow drifters in
+    # the plume and small embers that read cool (a sub-pixel or fast ember reads low). The
+    # held-out review measures the precision on recordings these values never saw.
     min_peak_c: float = 450.0
-    min_speed_mps: float = 0.3
+    min_speed_mps: float = 0.4
     # Turning angle between successive straight_dt_s steps, reported as turn_deg once a
     # track spans straight_min_s (no longer a test: smooth_max_px replaces it).
     straight_dt_s: float = 0.1
