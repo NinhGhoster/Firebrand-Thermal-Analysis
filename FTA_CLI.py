@@ -95,8 +95,13 @@ def cmd_params(a) -> int:
 def cmd_retrack(a) -> int:
     from fta_track.export import resolve_retrack_params, retrack
     overrides = _parse_overrides(a.set)
+    def _is_infall(root):
+        try:
+            return bool(json.load(open(os.path.join(root, "summary.json"))).get("infall_candidates"))
+        except Exception:
+            return False
     roots = [root for root, _, files in sorted(os.walk(a.results))
-             if "summary.json" in files and "detections.csv.gz" in files]
+             if "summary.json" in files and "detections.csv.gz" in files and not _is_infall(root)]
     if not roots:
         sys.exit(f"no results with detections.csv.gz under {a.results}")
     # check every recording before rewriting any, so a refusal cannot leave the tree half re-tracked
@@ -152,6 +157,8 @@ def cmd_aggregate(a) -> int:
             continue
         with open(os.path.join(root, "summary.json")) as fh:
             s = json.load(fh)
+        if s.get("infall_candidates"):         # a labelling sample, not a recording's results
+            continue
         label = s.get("label") or os.path.relpath(root, a.results)
         row = {"recording": label, **_factors(label)}
         frames = s.get("frames_processed")

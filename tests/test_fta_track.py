@@ -600,3 +600,34 @@ class TestLabelledRules:
     def test_a_hot_fast_ember_in_clear_air_passes_them_all(self):
         movers = self._one(700.0, 6.0, 0.0, min_speed_mps=0.3)
         assert len(movers) == 1 and movers[0]["is_firebrand"], [(t["fails"], t["mean_speed_mps"]) for t in movers]
+
+
+class TestContinuations:
+    """Found by the code review: the old stitch reached ~1 m in 0.4 s and merged different
+    firebrands; and a dropout in clear air split one firebrand in two."""
+
+    def _rows(self, specs, fps=30.0, s=0.002):
+        # specs: (track_id, start_frame, end_frame, x0_m, y0_m, vx, vy) straight flights
+        from fta_track.pipeline import _stitch
+        rows = []
+        for tid, f0, f1, x0, y0, vx, vy in specs:
+            t = (np.arange(f0, f1 + 1) - f0) / fps
+            n = len(t)
+            rows.append({"track_id": tid, "is_firebrand": True, "start_frame": f0, "end_frame": f1,
+                         "_series": {"X": x0 + vx * t, "Y": y0 + vy * t, "vx": np.full(n, vx), "vy": np.full(n, vy)}})
+        _stitch(rows, fps, s, Params())
+        return [r["firebrand_id"] for r in rows]
+
+    def test_two_firebrands_on_opposite_sides_of_the_zone_stay_two(self):
+        ids = self._rows([(1, 100, 120, 0.20, 0.50, -0.5, -0.5), (2, 132, 150, 1.45, 0.50, 0.5, 0.2)])
+        assert ids[0] != ids[1]
+
+    def test_a_dropout_in_clear_air_is_one_firebrand(self):
+        # 1 m/s right; lost for 6 frames (0.2 s); reappears where it was heading
+        ids = self._rows([(1, 100, 120, 0.20, 0.80, 1.0, 0.0),
+                          (2, 127, 150, 0.20 + 1.0 * 27 / 30.0, 0.80 - 0.5 * 9.81 * (7 / 30.0) ** 2, 1.0, 0.0)])
+        assert ids[0] == ids[1]
+
+    def test_a_gap_longer_than_stitch_gap_is_two(self):
+        ids = self._rows([(1, 100, 120, 0.20, 0.80, 1.0, 0.0), (2, 140, 160, 0.20 + 40 / 30.0, 0.80, 1.0, 0.0)])
+        assert ids[0] != ids[1]

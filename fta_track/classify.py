@@ -60,7 +60,9 @@ def zone_threshold(n_post: int, fps: float, p: Params) -> float:
 
 def flame_zone(hot_frac: np.ndarray, n_post: int, fps: float, p: Params) -> np.ndarray:
     """True where the flame, the burning sample or the burner is, widened and hole-filled."""
-    z = (hot_frac >= zone_threshold(n_post, fps, p)).astype(np.uint8)
+    # hot_frac is stored as float16, whose rounding can put a pixel hot in exactly the
+    # threshold's number of frames just below it; allow that rounding
+    z = (hot_frac >= zone_threshold(n_post, fps, p) * (1.0 - 1e-3)).astype(np.uint8)
     if p.zone_dilate_px > 0:
         k = 2 * p.zone_dilate_px + 1
         z = cv2.dilate(z, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))

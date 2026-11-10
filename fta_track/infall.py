@@ -64,6 +64,11 @@ def write_infall_candidates(results_dir: str, out_dir: str, overrides: Optional[
     s = p.m_per_px if p.m_per_px else metres_per_pixel(
         summary["distance_m"], recording_hfov_deg(summary.get("nc_attrs") or {}, p.lens_hfov_deg), summary["width"])
     ign = summary["ignition_frame"]
+    if os.path.realpath(out_dir) == os.path.realpath(results_dir):
+        raise ValueError("infall --out must not be the results directory: it would overwrite the detections")
+    existing = os.path.join(out_dir, "summary.json")
+    if os.path.exists(existing) and not json.load(open(existing)).get("infall_candidates"):
+        raise ValueError(f"{out_dir} holds a recording's results; choose an empty directory for infall")
     os.makedirs(out_dir, exist_ok=True)
     hot = np.load(os.path.join(results_dir, "hot_fraction.npz"))["hot_frac"].astype(np.float32)
     n_post = int(summary.get("post_ignition_frames") or 0)
@@ -112,7 +117,9 @@ def write_infall_candidates(results_dir: str, out_dir: str, overrides: Optional[
         st.abort()
         raise
     shutil.copyfile(os.path.join(results_dir, "hot_fraction.npz"), os.path.join(out_dir, "hot_fraction.npz"))
-    out_summary = {**summary, "params": p.to_dict(), "infall_candidates": True,
+    drop = {"firebrand_count", "firebrand_tracks", "confirmed_tracks", "rejected_by_reason", "first_generation_s",
+            "median_generation_s", "median_equiv_diameter_mm", "median_length_mm"}
+    out_summary = {**{k: v for k, v in summary.items() if k not in drop}, "params": p.to_dict(), "infall_candidates": True,
                    "firebrand_count": None, "candidates": len(rows), "min_drop_m": min_drop_m,
                    "note": "smooth falling tracks inside the flame zone, for labelling; not counted"}
     with open(os.path.join(out_dir, "summary.json"), "w") as fh:

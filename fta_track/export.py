@@ -204,6 +204,8 @@ def _track_summary(res: Dict, p) -> Dict:
     gen = [t["generation_time_s"] for t in first.values() if math.isfinite(t.get("generation_time_s", math.nan))]
     return {
         "first_generation_s": round(min(gen), 3) if gen else None,
+        "size_method": ("min_area_rect" if any(d.get("length_px") is not None for d in res["detections"][:1000])
+                        else "bbox") if res["detections"] else None,
         "median_generation_s": med("generation_time_s"),
         "median_equiv_diameter_mm": med("equiv_diameter_mm"),
         "median_length_mm": med("length_mm"),
@@ -278,7 +280,7 @@ def _run_summary(res: Dict, rec, p, label: str, start: int, stop: Optional[int])
         "runtime_s": round(res["seconds"], 1),
         "nc_attrs": getattr(rec, "attrs", {}),
     }
-    summary["short_post_ignition"] = bool(ign is not None and res["n_post"] < p.zone_min_s * fps / p.zone_frac)
+    summary["short_post_ignition"] = bool(ign is not None and res["n_post"] < p.zone_min_s * fps)
     return summary
 
 
@@ -372,7 +374,7 @@ def retrack(out_dir: str, overrides: Optional[Dict] = None, from_defaults: bool 
     summary.update(_track_summary(res, p))
     summary["m_per_px"] = s
     summary["post_ignition_frames"] = n_post
-    summary["short_post_ignition"] = bool(ign is not None and n_post < p.zone_min_s * fps / p.zone_frac)
+    summary["short_post_ignition"] = bool(ign is not None and n_post < p.zone_min_s * fps)
     summary["retracked"] = True
     st = _Staged(out_dir)
     try:

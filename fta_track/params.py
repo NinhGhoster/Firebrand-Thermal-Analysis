@@ -130,13 +130,12 @@ class Params:
     # track spans straight_min_s (no longer a test: smooth_max_px replaces it).
     straight_dt_s: float = 0.1
     straight_min_s: float = 0.3
-    # Zone re-entries: a firebrand that dips back into the zone's ragged edge and leaves
-    # again is two tracks but one firebrand. A counted track that starts within
-    # stitch_zone_px of the zone, within stitch_gap_s of a counted track that ended within
-    # stitch_zone_px of it, and within that track's reach (v_max * gap + gate_floor_px),
-    # takes its firebrand_id.
-    stitch_gap_s: float = 0.5
-    stitch_zone_px: float = 15.0
+    # Continuations: a firebrand lost for longer than the coast (back into the flame zone, or
+    # below the threshold in clear air) is two tracks but one firebrand. A counted track that
+    # starts within stitch_gap_s of a counted track's end, within stitch_tol_m (plus g dt^2/2)
+    # of where that track was heading, takes its firebrand_id (pipeline._stitch).
+    stitch_gap_s: float = 0.3
+    stitch_tol_m: float = 0.02
 
     # --- kinematics and units ---------------------------------------------
     lsq_window_s: float = 0.165       # duration of each least-squares velocity fit

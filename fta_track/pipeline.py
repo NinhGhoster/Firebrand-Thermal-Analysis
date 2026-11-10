@@ -123,33 +123,49 @@ def _crowding(by_frame: Dict[int, List[Dict]], frame: int, det: Dict, own: set, 
     return n / (2 * w + 1)
 
 
-def _stitch(rows: List[Dict], fps: float, p: Params, dv: Dict) -> None:
-    """Give every firebrand track a firebrand_id; a zone re-entry inherits its predecessor's.
+def _end_state(series: Dict) -> Tuple[float, float, float, float]:
+    """Last position (m, Y up) and velocity (m/s) of a track; velocity from the last finite fit."""
+    X, Y, vx, vy = series["X"], series["Y"], series["vx"], series["vy"]
+    ok = np.isfinite(vx) & np.isfinite(vy)
+    if ok.any():
+        k = int(np.nonzero(ok)[0][-1])
+        return float(X[-1]), float(Y[-1]), float(vx[k]), float(vy[k])
+    return float(X[-1]), float(Y[-1]), 0.0, 0.0
 
-    A counted track that starts within stitch_zone_px of the zone, at most stitch_gap_s
-    after a counted track ended within stitch_zone_px of it, and no farther from that
-    end than v_max allows (plus the gate floor), is the same firebrand coming back out.
-    Each track hands its id on at most once, to the nearest such successor in time.
+
+def _stitch(rows: List[Dict], fps: float, s: float, p: Params) -> None:
+    """Give every firebrand track a firebrand_id; a track that continues another inherits its id.
+
+    One firebrand becomes two tracks when it is lost for longer than the tracker coasts:
+    it dips back into the flame zone, or drops below the detection threshold in clear air.
+    A counted track b continues a counted track a when b starts at most stitch_gap_s after a
+    ended, where a was heading: within stitch_tol_m plus half of g times the gap squared of
+    a's end position carried forward by its end velocity and gravity. The tolerance is set by
+    physics, not by v_max, so two different firebrands leaving the zone at the same time in
+    different places are never merged. Each track hands its id on at most once, to the
+    closest match.
     """
+    g = 9.81
     fb = sorted((r for r in rows if r["is_firebrand"]), key=lambda r: (r["start_frame"], r["track_id"]))
+    ends = {r["track_id"]: _end_state(r["_series"]) for r in fb}
     taken = set()
     next_id = 1
     for i, b in enumerate(fb):
         best = None
-        if b["exit_zone_dist_px"] <= p.stitch_zone_px:
-            bs = b["_series"]
-            for a in fb[:i]:
-                if a["track_id"] in taken or a["end_frame"] >= b["start_frame"]:
-                    continue
-                gap = b["start_frame"] - a["end_frame"]
-                if gap / fps > p.stitch_gap_s + 1e-9 or a["end_zone_dist_px"] > p.stitch_zone_px:
-                    continue
-                as_ = a["_series"]
-                jump = math.hypot(bs["x_px"][0] - as_["x_px"][-1], bs["y_px"][0] - as_["y_px"][-1])
-                if jump > dv["gate_new_px"] * gap + p.gate_floor_px:
-                    continue
-                if best is None or gap < best[0]:
-                    best = (gap, a)
+        bX, bY = float(b["_series"]["X"][0]), float(b["_series"]["Y"][0])
+        for a in fb[:i]:
+            if a["track_id"] in taken or a["end_frame"] >= b["start_frame"]:
+                continue
+            dt = (b["start_frame"] - a["end_frame"]) / fps
+            if dt > p.stitch_gap_s + 1e-9:
+                continue
+            aX, aY, avx, avy = ends[a["track_id"]]
+            px, py = aX + avx * dt, aY + avy * dt - 0.5 * g * dt * dt
+            miss = math.hypot(bX - px, bY - py)
+            if miss > p.stitch_tol_m + 0.5 * g * dt * dt:
+                continue
+            if best is None or miss < best[0]:
+                best = (miss, a)
         if best is None:
             b["firebrand_id"] = next_id
             next_id += 1
@@ -201,7 +217,7 @@ def track_classify(dets_by_frame: Dict[int, List[Dict]], span: Tuple[int, int], 
         for _, d in t.points:
             d["track_id"] = t.public_id
         rows.append(f)
-    _stitch(rows, fps, p, dv)
+    _stitch(rows, fps, s, p)
     fid = {r["track_id"]: r["firebrand_id"] for r in rows if r["firebrand_id"] is not None}
     for dets in dets_by_frame.values():
         for d in dets:

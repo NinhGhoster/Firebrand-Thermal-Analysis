@@ -297,11 +297,12 @@ def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
     if min_det is None:
         # every confirmed track is eligible: at 10-15 fps a confirmed track can have 2 detections
         min_det = int((results_summary.get("derived") or {}).get("min_hits", 3))
+    infall = bool(results_summary.get("infall_candidates"))
     tracks, others = _read_tracks(results_dir)
     rng = random.Random(f"{seed}:{label}")
     fb = [t for t in tracks if t["is_firebrand"] == "1"]
     n_fb = len(fb) if n_firebrand is None or n_firebrand < 0 else min(n_firebrand, len(fb))
-    picks = [(t, "counted", len(fb)) for t in rng.sample(fb, n_fb)]
+    picks = [(t, "infall" if infall else "counted", len(fb)) for t in rng.sample(fb, n_fb)]
     # Rejected tracks, spread evenly over the rejection reasons, so the borderline
     # ones are judged and not just obvious junk.
     # Each clip records its stratum and the stratum's size, so score() can weight.
@@ -362,7 +363,7 @@ def make_batch(results_dir: str, nc_path: str, batch_dir: str, label: str,
                 "id": cid, "fps": fps, **info,
                 # hidden from the reviewer; used only by score()
                 "label": label, "track_id": t["track_id"],
-                "pipeline_firebrand": t["is_firebrand"] == "1",
+                "pipeline_firebrand": t["is_firebrand"] == "1" and not infall,
                 "reject_reason": t["reject_reason"], "fails": t.get("fails", ""),
                 "stratum": stratum, "stratum_population": population, "stratum_sampled": sampled[stratum],
                 "features": {k: _num(t.get(k)) for k in FEATURES},
@@ -613,13 +614,19 @@ def score(batch_dir: str, verdicts_path: str) -> Dict:
                 "share_yes_or_partly": round((y + pa) / judged, 3) if judged else None}
 
     fb, rej = defaultdict(list), defaultdict(list)
+    infall_v = []
     by_reason = defaultdict(list)
     strata = defaultdict(lambda: {"population": 0, "verdicts": []})
     for c in man.values():                      # every sampled stratum, judged or not
+        if c.get("stratum") == "infall":
+            continue
         key = (c["label"], c.get("stratum") or ("counted" if c["pipeline_firebrand"] else "rejected:" + c["reject_reason"]))
         strata[key]["population"] = c.get("stratum_population") or 0
     for cid, v in valid.items():
         c = man[cid]
+        if c.get("stratum") == "infall":         # falling-in-flame labelling sample: tallied apart
+            infall_v.append(v)
+            continue
         (fb if c["pipeline_firebrand"] else rej)[c["label"]].append(v)
         if not c["pipeline_firebrand"]:
             by_reason[c["reject_reason"]].append(v)
@@ -649,6 +656,8 @@ def score(batch_dir: str, verdicts_path: str) -> Dict:
             else:
                 est_r += N * shares[st]
                 pop_r += N
+    # near-miss strata cover only rejects failing one test: their totals are not all rejects
+    near_miss_only = any(str(st).startswith("near_miss:") for (_, st) in strata)
     weighted = {
         "recordings_included": included,
         "recordings_excluded": excluded,
@@ -657,7 +666,8 @@ def score(batch_dir: str, verdicts_path: str) -> Dict:
         "estimated_precision": round(est_c / pop_c, 3) if pop_c else None,
         "rejected_tracks": pop_r,
         "estimated_real_among_rejected": round(est_r, 1),
-        "estimated_recall_among_confirmed_tracks": round(est_c / (est_c + est_r), 3) if (est_c + est_r) else None,
+        "estimated_recall_among_confirmed_tracks": (round(est_c / (est_c + est_r), 3) if (est_c + est_r) else None)
+        if not near_miss_only else None,
         "note": "stratum-weighted (Horvitz-Thompson) within each included recording; a recording is "
                 "included only when every stratum sampled from it has at least one yes/no verdict; "
                 "recall is relative to confirmed tracks, not to every firebrand in the video",
@@ -680,6 +690,7 @@ def score(batch_dir: str, verdicts_path: str) -> Dict:
         "per_recording": {lab: {"counted": tally(fb.get(lab, [])), "rejected": tally(rej.get(lab, []))}
                           for lab in sorted(set(fb) | set(rej))},
         "rejected_by_reason": {k: tally(v) for k, v in sorted(by_reason.items())},
+        "infall_sample": tally(infall_v) if infall_v else None,
     }
     _write_json_atomic(os.path.join(batch_dir, "scores.json"), out)
     return out

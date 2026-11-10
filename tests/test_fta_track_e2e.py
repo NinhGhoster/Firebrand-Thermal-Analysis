@@ -424,3 +424,28 @@ def test_firebrands_carry_real_size_and_generation_time(recording, tmp_path):
     with gzip.open(out / "detections.csv.gz", "rt") as fh:
         d = next(csv.DictReader(fh))
     assert "length_px" in d and "width_px" in d
+
+
+def test_infall_refuses_to_write_over_results(recording, tmp_path):
+    from fta_track.infall import write_infall_candidates
+    out = tmp_path / "res"
+    FTA_CLI.main(["run", recording, "--out", str(out), "--set", "m_per_px=0.002"])
+    before = open(out / "detections.csv.gz", "rb").read()
+    with pytest.raises(ValueError):
+        write_infall_candidates(str(out), str(out))
+    other = tmp_path / "res2"
+    FTA_CLI.main(["run", recording, "--out", str(other), "--set", "m_per_px=0.002"])
+    with pytest.raises(ValueError):
+        write_infall_candidates(str(out), str(other))
+    assert open(out / "detections.csv.gz", "rb").read() == before
+
+
+def test_aggregate_skips_infall_samples(recording, tmp_path):
+    from fta_track.infall import write_infall_candidates
+    lab = "branchlet/X/150kW/Twigs/1"
+    res = tmp_path / "results" / lab
+    FTA_CLI.main(["run", recording, "--out", str(res), "--label", lab, "--set", "m_per_px=0.002"])
+    write_infall_candidates(str(res), str(tmp_path / "results" / "infall" / lab))
+    table = tmp_path / "counts.csv"
+    FTA_CLI.main(["aggregate", str(tmp_path / "results"), "--out", str(table)])
+    assert len(list(csv.DictReader(open(table)))) == 1
