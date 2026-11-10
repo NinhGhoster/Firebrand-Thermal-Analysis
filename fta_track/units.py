@@ -18,6 +18,15 @@ from typing import Optional, Tuple
 import numpy as np
 
 
+def recording_hfov_deg(attrs: dict, default_deg: float) -> float:
+    """Horizontal FOV for a recording: from the lens or camera model it records
+    (fta_track.optics), else the lens_hfov_deg parameter."""
+    from .optics import hfov_from_metadata
+
+    deg, _ = hfov_from_metadata((attrs or {}).get("lens"), (attrs or {}).get("camera_model"))
+    return deg if deg else default_deg
+
+
 def metres_per_pixel(distance_m: float, hfov_deg: float, width_px: int) -> float:
     return 2.0 * distance_m * math.tan(math.radians(hfov_deg) / 2.0) / float(width_px)
 

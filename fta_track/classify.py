@@ -99,6 +99,14 @@ def track_features(points: List[tuple], fps: float, s: float, ctx: Dict, p: Para
     tmax = np.array([d["max_c"] for _, d in points])
     tmean = np.array([d["mean_c"] for _, d in points])
     area = np.array([d["area"] for _, d in points], dtype=float)
+    # length and width: the blob's minimum-area rectangle (older detections: its box)
+    blen = np.array([d.get("length_px") or max(d["bbox"][2], d["bbox"][3]) if "bbox" in d else np.nan
+                     for _, d in points], dtype=float)
+    bwid = np.array([d.get("width_px") or min(d["bbox"][2], d["bbox"][3]) if "bbox" in d else np.nan
+                     for _, d in points], dtype=float)
+    s_mm = s * 1000.0
+    area_mm2 = area * s_mm * s_mm
+    length_mm = blen * s_mm
     egrad = np.array([d.get("edge_grad", np.nan) for _, d in points], dtype=float)
     bg_t = np.array([d.get("bg_t_c", np.nan) for _, d in points], dtype=float)
     bg_r = np.array([d["bg_c"] for _, d in points], dtype=float)
@@ -128,6 +136,16 @@ def track_features(points: List[tuple], fps: float, s: float, ctx: Dict, p: Para
         "median_step_px": float(np.median(np.hypot(np.diff(xs), np.diff(ys)))) if n >= 2 else float("nan"),
         "crowding": float(np.nanmedian(crowd)) if np.isfinite(crowd).any() else float("nan"),
         "start_after_ignition_s": float((frames[0] - ign) / fps) if ign is not None else float("nan"),
+        # generation time: from ignition to the firebrand's first sighting outside the flame
+        # zone. It detaches inside the flame a little earlier, so this is an upper bound.
+        "generation_time_s": float((frames[0] - ign) / fps) if ign is not None else float("nan"),
+        # real size, median over the track's detections (one detection can be blurred or
+        # clipped); at the recording's distance, from its lens (fta_track.optics)
+        "area_mm2": float(np.median(area_mm2)),
+        "equiv_diameter_mm": float(2.0 * np.sqrt(np.median(area_mm2) / np.pi)),
+        "length_mm": float(np.nanmedian(length_mm)) if np.isfinite(length_mm).any() else float("nan"),
+        "width_mm": float(np.nanmedian(bwid * s_mm)) if np.isfinite(bwid).any() else float("nan"),
+        "max_length_mm": float(np.nanmax(length_mm)) if np.isfinite(length_mm).any() else float("nan"),
         "exit_zone_dist_px": float(zd[0]), "end_zone_dist_px": float(zd[-1]),
         "exit_hot_frac": float(_at(ctx["hot_frac"], xs[:1], ys[:1])[0]) if ctx.get("hot_frac") is not None
         else float("nan"),
@@ -153,7 +171,8 @@ def track_features(points: List[tuple], fps: float, s: float, ctx: Dict, p: Para
         # per-point series, written to track_points.csv.gz
         "_series": {"frame": frames.astype(int), "t": t, "x_px": xs, "y_px": ys, "X": X, "Y": Y,
                     "vx": vx, "vy": vy, "speed": speed, "max_c": tmax, "mean_c": tmean, "area": area,
-                    "contrast": contrast, "edge_grad": egrad, "zone_dist": zd, "crowd": crowd},
+                    "contrast": contrast, "edge_grad": egrad, "zone_dist": zd, "crowd": crowd,
+                    "area_mm2": area_mm2, "length_mm": length_mm},
     }
 
 

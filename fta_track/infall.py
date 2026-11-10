@@ -26,7 +26,7 @@ import numpy as np
 from .classify import flame_zone, track_features, zone_distance
 from .export import _Staged, _write_tables, resolve_retrack_params
 from .track import Tracker
-from .units import metres_per_pixel
+from .units import metres_per_pixel, recording_hfov_deg
 
 
 def _load_detections(results_dir: str) -> Dict[int, List[Dict]]:
@@ -61,7 +61,8 @@ def write_infall_candidates(results_dir: str, out_dir: str, overrides: Optional[
     """
     p, summary = resolve_retrack_params(results_dir, overrides or {}, from_defaults=True)
     fps = float(summary["fps"])
-    s = p.m_per_px if p.m_per_px else metres_per_pixel(summary["distance_m"], p.lens_hfov_deg, summary["width"])
+    s = p.m_per_px if p.m_per_px else metres_per_pixel(
+        summary["distance_m"], recording_hfov_deg(summary.get("nc_attrs") or {}, p.lens_hfov_deg), summary["width"])
     ign = summary["ignition_frame"]
     os.makedirs(out_dir, exist_ok=True)
     hot = np.load(os.path.join(results_dir, "hot_fraction.npz"))["hot_frac"].astype(np.float32)

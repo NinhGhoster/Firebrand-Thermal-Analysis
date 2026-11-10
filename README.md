@@ -108,7 +108,7 @@ uv run python nc_player.py S9.nc
 ### Open files
 - **Open** opens a small menu where you can load radiometric file(s) or a folder.
 - When a folder is selected, all supported files (`.seq`, `.csq`, `.jpg`, `.ats`, `.sfmov`, `.img`) are discovered recursively (including subfolders) and loaded in sorted order.
-- Use **<< / >>** to switch the current view.
+- Use **<< / >>** to switch the current view. The Data Source panel shows which file is on screen, e.g. **File 3 of 12: S9.seq** (also in the window title).
 
 ### Playback
 - **Play/Pause** toggles play/pause, **< / >** step frames, and the frame slider scrubs.
@@ -117,6 +117,7 @@ uv run python nc_player.py S9.nc
 ### Export settings
 - **Detection Threshold**: temperature threshold (C) for firebrand detection.
 - **Emissivity**: the metadata value is shown for the current file; default input is 0.9.
+- **Distance (m)** and **Scale**: the object distance and lens are read from the file, and the size of one pixel on the target is computed from them, as FLIR Research Studio does: `pixel size = 2 × distance × tan(HFOV / 2) / image width` (or distance × IFOV when the file carries the camera's IFOV). For a T1040 with the 45° lens (FOL21) at 2 m this is 1.618 mm per pixel. Edit the distance if the objects were not at the recorded distance; the scale, the on-screen sizes and the CSV follow it.
 - **Export Range**: start/end are 1-based frame numbers. End accepts `max`.
 - **Start = N / End = N** uses the current frame number (shows Set start/end when no file is loaded).
 - **Apply to `<file>`** saves settings for the current file; **Apply all** applies to all loaded files.
@@ -175,6 +176,13 @@ Each row is one detected firebrand in a frame.
 | `bbox_y` | Bounding box top |
 | `bbox_w` | Bounding box width |
 | `bbox_h` | Bounding box height |
+| `length_pixels`, `width_pixels` | Longest and shortest side of the blob's minimum-area rectangle |
+| `pixel_size_mm` | Size of one pixel on the target, from the file's distance and lens (empty if unknown) |
+| `area_mm2` | Blob area in mm² (`area_pixels × pixel_size_mm²`) |
+| `length_mm`, `width_mm` | Blob length and width in mm |
+| `equiv_diameter_mm` | Diameter of the circle with the same area |
+
+Sizes are apparent sizes in the thermal image at the stated distance: a firebrand nearer or farther than that distance is scaled wrongly, blur makes small hot objects look larger, and an object smaller than a pixel counts as a whole pixel.
 
 
 

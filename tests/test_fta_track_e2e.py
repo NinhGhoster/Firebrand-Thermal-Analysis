@@ -405,3 +405,22 @@ def test_infall_finds_an_ember_falling_through_the_flame(tmp_path):
     batch = tmp_path / "batch"
     assert make_batch(str(tmp_path / "infall"), str(path), str(batch), "branchlet/X/150kW/Twigs/1/infall",
                       n_firebrand=None, n_rejected=0) == n
+
+
+def test_firebrands_carry_real_size_and_generation_time(recording, tmp_path):
+    out = tmp_path / "res"
+    FTA_CLI.main(["run", recording, "--out", str(out), "--set", "m_per_px=0.002"])
+    fb = [r for r in csv.DictReader(open(out / "tracks.csv")) if r["is_firebrand"] == "1"]
+    assert len(fb) == 1
+    t = fb[0]
+    # the ember is a 2x2 px block at 2 mm/px: 16 mm^2, 4 mm long; it is first seen just after
+    # launch at frame 110, ignition at frame 10 (30 fps): ~3.3 s
+    assert float(t["area_mm2"]) == pytest.approx(16.0, rel=0.3)
+    assert float(t["length_mm"]) == pytest.approx(4.0, rel=0.3)
+    assert float(t["generation_time_s"]) == pytest.approx(100 / 30.0, abs=0.15)
+    s = json.load(open(out / "summary.json"))
+    assert s["first_generation_s"] == pytest.approx(float(t["generation_time_s"]), abs=1e-3)
+    assert s["median_equiv_diameter_mm"] == pytest.approx(float(t["equiv_diameter_mm"]), abs=1e-3)
+    with gzip.open(out / "detections.csv.gz", "rt") as fh:
+        d = next(csv.DictReader(fh))
+    assert "length_px" in d and "width_px" in d

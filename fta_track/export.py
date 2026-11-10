@@ -38,12 +38,14 @@ TRACK_COLS = [
     "exit_speed_mps", "exit_dir_deg", "mean_speed_mps", "max_speed_mps", "vert_accel_mps2",
     "peak_c", "mean_c", "cooling_c_per_s", "mean_area_px", "area_jump", "edge_grad",
     "exit_t_s", "exit_fit", "exit_span_s",
+    "generation_time_s", "area_mm2", "equiv_diameter_mm", "length_mm", "width_mm", "max_length_mm",
 ]
 POINT_COLS = ["track_id", "firebrand_id", "is_firebrand", "frame", "time_s", "x_px", "y_px", "x_m", "y_m",
               "vx_mps", "vy_mps", "speed_mps", "max_c", "mean_c", "contrast_c", "edge_grad",
-              "zone_dist_px", "crowding", "area_px"]
+              "zone_dist_px", "crowding", "area_px", "area_mm2", "length_mm"]
 DET_COLS = ["frame", "time_s", "track_id", "x_px", "y_px", "bbox_x", "bbox_y", "bbox_w", "bbox_h",
-            "area_px", "max_c", "mean_c", "median_c", "bg_c", "bg_t_c", "edge_grad", "excess_c_px", "in_zone"]
+            "area_px", "max_c", "mean_c", "median_c", "bg_c", "bg_t_c", "edge_grad", "excess_c_px", "in_zone",
+            "length_px", "width_px"]
 # Parameters that set the pixel scale: always taken from the run, even with --from-defaults.
 SCALE_PARAMS = ("m_per_px", "lens_hfov_deg")
 # Parameters used by the detection pass; changing any of them needs a new `run`.
@@ -132,7 +134,7 @@ def _write_tables(out_dir: str, res: Dict, fps: float, width: int, height: int, 
                             _fmt(s["vx"][k]), _fmt(s["vy"][k]), _fmt(s["speed"][k]),
                             _fmt(s["max_c"][k], 2), _fmt(s["mean_c"][k], 2), _fmt(s["contrast"][k], 2),
                             _fmt(s["edge_grad"][k], 2), _fmt(s["zone_dist"][k], 1), _fmt(s["crowd"][k], 2),
-                            int(s["area"][k])])
+                            int(s["area"][k]), _fmt(s["area_mm2"][k], 3), _fmt(s["length_mm"][k], 3)])
 
     with gzip.open(st.path("detections.csv.gz"), "wt", newline="") as fh:
         w = csv.writer(fh)
@@ -143,7 +145,8 @@ def _write_tables(out_dir: str, res: Dict, fps: float, width: int, height: int, 
                         _fmt(d["cx"], 2), _fmt(d["cy"], 2), x, y, bw, bh, d["area"],
                         _fmt(d["max_c"], 2), _fmt(d["mean_c"], 2), _fmt(d["median_c"], 2),
                         _fmt(d["bg_c"], 2), _fmt(d.get("bg_t_c"), 2), _fmt(d.get("edge_grad"), 2),
-                        _fmt(d["excess"], 1), _fmt(bool(d.get("in_zone", False)))])
+                        _fmt(d["excess"], 1), _fmt(bool(d.get("in_zone", False))),
+                        _fmt(d.get("length_px"), 2), _fmt(d.get("width_px"), 2)])
 
     fb_ids = {t["track_id"] for t in tracks if t["is_firebrand"]}
     safe = (label or "recording").replace("/", "__")
@@ -192,7 +195,22 @@ def _track_summary(res: Dict, p) -> Dict:
         if t["reject_reason"]:
             reasons[t["reject_reason"]] = reasons.get(t["reject_reason"], 0) + 1
     pd = p.to_dict()
+    first = {}
+    for t in sorted((t for t in tracks if t["is_firebrand"]), key=lambda t: t["start_frame"]):
+        first.setdefault(t["firebrand_id"], t)          # a stitched firebrand: its first sighting
+    def med(key):
+        v = [t[key] for t in first.values() if t.get(key) is not None and math.isfinite(t[key])]
+        return round(float(np.median(v)), 3) if v else None
+    gen = [t["generation_time_s"] for t in first.values() if math.isfinite(t.get("generation_time_s", math.nan))]
     return {
+        "first_generation_s": round(min(gen), 3) if gen else None,
+        "median_generation_s": med("generation_time_s"),
+        "median_equiv_diameter_mm": med("equiv_diameter_mm"),
+        "median_length_mm": med("length_mm"),
+        "generation_note": "seconds from ignition (first frame with >= ignition_min_px at >= hot_thresh_c) to "
+                           "a firebrand's first sighting outside the flame zone; an upper bound on when it detached",
+        "size_note": "apparent size in the thermal image at distance_m: blur enlarges small hot objects, a "
+                     "firebrand nearer or farther than distance_m is scaled wrongly, sub-pixel embers count as a pixel",
         "firebrand_count": len({t["firebrand_id"] for t in tracks if t["is_firebrand"]}),
         "firebrand_tracks": sum(1 for t in tracks if t["is_firebrand"]),
         "count_note": "firebrands seen leaving the flame zone (summary derived.zone_threshold, zone.png); "
@@ -313,7 +331,7 @@ def retrack(out_dir: str, overrides: Optional[Dict] = None, from_defaults: bool 
     overrides it reproduces the run exactly.
     """
     from .pipeline import track_classify
-    from .units import metres_per_pixel
+    from .units import metres_per_pixel, recording_hfov_deg
 
     p, summary = resolve_retrack_params(out_dir, overrides or {}, from_defaults)
     dets_by_frame: Dict[int, List[Dict]] = {}
@@ -330,10 +348,13 @@ def retrack(out_dir: str, overrides: Optional[Dict] = None, from_defaults: bool 
                 "bg_t_c": float(r["bg_t_c"]) if r.get("bg_t_c") else nan,
                 "edge_grad": float(r["edge_grad"]) if r.get("edge_grad") else nan,
                 "excess": float(r["excess_c_px"]) if r["excess_c_px"] else nan,
+                "length_px": float(r["length_px"]) if r.get("length_px") else None,
+                "width_px": float(r["width_px"]) if r.get("width_px") else None,
             })
     hot_frac = np.load(os.path.join(out_dir, "hot_fraction.npz"))["hot_frac"].astype(np.float32)
     fps = float(summary["fps"])
-    s = p.m_per_px if p.m_per_px else metres_per_pixel(summary["distance_m"], p.lens_hfov_deg, summary["width"])
+    s = p.m_per_px if p.m_per_px else metres_per_pixel(
+        summary["distance_m"], recording_hfov_deg(summary.get("nc_attrs") or {}, p.lens_hfov_deg), summary["width"])
     ign = summary["ignition_frame"]
     n_post = summary.get("post_ignition_frames")
     if n_post is None and ign is not None:

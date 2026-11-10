@@ -24,6 +24,8 @@ from typing import Dict, List, Optional, Sequence
 import cv2
 import numpy as np
 
+from .optics import blob_extent_px
+
 
 _CROSS = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
 
@@ -70,6 +72,7 @@ def detect_blobs(frame: np.ndarray, hot: np.ndarray, persistent: np.ndarray,
             stack = np.stack([sm[y0:y0 + h, x0:x0 + w] for sm in samples])
             bg_t = float(np.median(np.median(stack, axis=0)[own]))
 
+        length_px, width_px = blob_extent_px(blob)
         ys, xs = np.nonzero(blob)
         wts = temps - bg if np.isfinite(bg) else np.ones_like(temps)
         wts = np.clip(wts, 0.0, None)
@@ -86,6 +89,8 @@ def detect_blobs(frame: np.ndarray, hot: np.ndarray, persistent: np.ndarray,
             "cx": round(cx, 2), "cy": round(cy, 2),
             "bbox": (x0, y0, w, h),
             "area": area,
+            "length_px": round(length_px, 2),
+            "width_px": round(width_px, 2),
             "max_c": round(float(temps.max()), 2),
             "mean_c": round(float(temps.mean()), 2),
             "median_c": round(float(np.median(temps)), 2),

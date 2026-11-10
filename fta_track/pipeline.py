@@ -29,7 +29,7 @@ from .classify import classify, flame_zone, track_features, zone_distance, zone_
 from .detect import detect_blobs
 from .params import Params
 from .track import Tracker
-from .units import metres_per_pixel
+from .units import metres_per_pixel, recording_hfov_deg
 
 Log = Callable[[str], None]
 
@@ -214,8 +214,8 @@ def track_classify(dets_by_frame: Dict[int, List[Dict]], span: Tuple[int, int], 
 
 
 def run_frames(frames: Iterable[Tuple[int, np.ndarray]], shape: Tuple[int, int], fps: float,
-               distance_m: float, p: Params, log: Log = _stderr) -> Dict:
-    s = p.m_per_px if p.m_per_px else metres_per_pixel(distance_m, p.lens_hfov_deg, shape[1])
+               distance_m: float, p: Params, log: Log = _stderr, hfov_deg: Optional[float] = None) -> Dict:
+    s = p.m_per_px if p.m_per_px else metres_per_pixel(distance_m, hfov_deg or p.lens_hfov_deg, shape[1])
     det = detect_stream(frames, shape, fps, p, log)
     t0 = time.time()
     if det["ignition_frame"] is None:
@@ -294,7 +294,8 @@ def run_recording(path: str, out_dir: str, p: Optional[Params] = None, label: st
     _stderr(f"{label or path}: {rec.n_frames} frames, {rec.width}x{rec.height}, {rec.fps:g} fps, "
             f"D = {rec.distance_m:g} m")
     try:
-        res = run_frames(rec.iter_frames(start, stop), (rec.height, rec.width), rec.fps, rec.distance_m, p)
+        res = run_frames(rec.iter_frames(start, stop), (rec.height, rec.width), rec.fps, rec.distance_m, p,
+                         hfov_deg=recording_hfov_deg(rec.attrs, p.lens_hfov_deg))
         if qa:
             _stderr("  rendering qa.mp4")
             render_qa(rec.iter_frames(start, stop), res, rec.fps, os.path.join(out_dir, "qa.mp4"))

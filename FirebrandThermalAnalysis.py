@@ -57,6 +57,8 @@ try:
 except Exception:
     print("FLIR SDK required"); sys.exit(1)
 
+from fta_track.optics import blob_extent_px, hfov_from_metadata, pixel_size_m, sizes_mm
+
 try:
     import netCDF4 as nc
 except ImportError:
@@ -73,6 +75,11 @@ class VideoReader:
         self.is_temp = True
         self.emissivity = None
         self.unit_label = "C"
+        # for real sizes: object distance (m) and field of view, from the file's metadata
+        self.distance_m: Optional[float] = None
+        self.hfov_deg: Optional[float] = None
+        self.ifov_rad: Optional[float] = None
+        self.scale_source = "unknown"
         
     def get_frame(self, idx: int) -> np.ndarray:
         raise NotImplementedError
@@ -99,6 +106,22 @@ class FNVReader(VideoReader):
             self.emissivity = float(self.im.object_parameters.emissivity)
         except Exception:
             self.emissivity = None
+        try:
+            self.distance_m = float(self.im.object_parameters.distance)
+        except Exception:
+            self.distance_m = None
+        try:
+            si = self.im.source_info
+            if getattr(si, "fov_valid", False) and float(si.ihfov) > 0:
+                ifov = float(si.ihfov)
+                # FLIR stores IFOV in micro-radians in the file; accept radians too
+                self.ifov_rad = ifov * 1e-6 if ifov > 0.01 else ifov
+                self.scale_source = "camera IFOV"
+            self.hfov_deg, src = hfov_from_metadata(getattr(si, "lens", None), getattr(si, "camera_model", None))
+            if self.ifov_rad is None:
+                self.scale_source = src
+        except Exception:
+            pass
             
     def get_frame(self, idx: int) -> np.ndarray:
         self.im.get_frame(idx)
@@ -128,6 +151,12 @@ class NetCDFReader(VideoReader):
         
         if "emissivity_original" in self.ds.ncattrs():
             self.emissivity = float(self.ds.getncattr("emissivity_original"))
+        attrs = self.ds.ncattrs()
+        if "distance" in attrs:
+            self.distance_m = float(self.ds.getncattr("distance"))
+        self.hfov_deg, self.scale_source = hfov_from_metadata(
+            self.ds.getncattr("lens") if "lens" in attrs else None,
+            self.ds.getncattr("camera_model") if "camera_model" in attrs else None)
             
     def get_frame(self, idx: int) -> np.ndarray:
         with self._lock:
@@ -136,6 +165,30 @@ class NetCDFReader(VideoReader):
     def set_emissivity(self, emiss: float):
         # Emissivity is baked in during compression for NetCDF, but we update the meta tracker
         self.emissivity = emiss
+
+def reader_pixel_size_m(reader: VideoReader, distance_override: Optional[float] = None) -> Optional[float]:
+    """Metres per pixel for this file, at its recorded distance or at distance_override."""
+    dist = distance_override if distance_override else reader.distance_m
+    return pixel_size_m(dist, reader.width, reader.hfov_deg, reader.ifov_rad)
+
+
+CSV_HEADER = ["frame", "firebrand_id", "max_temperature", "min_temperature", "avg_temperature",
+              "median_temperature", "area_pixels", "bbox_x", "bbox_y", "bbox_w", "bbox_h",
+              "length_pixels", "width_pixels", "pixel_size_mm", "area_mm2", "length_mm", "width_mm",
+              "equiv_diameter_mm"]
+
+
+def detection_csv_row(frame_number: int, det: Dict[str, Any], s_m: Optional[float]) -> list:
+    """One CSV row: temperatures, pixel size, and real size where the scale is known."""
+    x, y, w, h = det["bbox"]
+    size = sizes_mm(det.get("area", 0), det.get("length_px", max(w, h)), det.get("width_px", min(w, h)), s_m)
+    rnd = lambda v, nd: "" if v is None else round(v, nd)
+    return [frame_number, det.get("track_id", -1), det["max_temp"], det.get("min_temp", det["max_temp"]),
+            det.get("avg_temp", det["max_temp"]), det.get("median_temp", det["max_temp"]), det.get("area", 0),
+            x, y, w, h, round(det.get("length_px", max(w, h)), 2), round(det.get("width_px", min(w, h)), 2),
+            rnd(s_m * 1000.0 if s_m else None, 4), rnd(size["area_mm2"], 3), rnd(size["length_mm"], 3),
+            rnd(size["width_mm"], 3), rnd(size["equiv_diameter_mm"], 3)]
+
 
 def create_video_reader(path: str) -> VideoReader:
     if path.lower().endswith(".nc"):
@@ -287,6 +340,7 @@ def detect_firebrands(
         temps = sub[mask]
         if temps.size == 0:
             continue
+        length_px, width_px = blob_extent_px(mask)
 
         detections.append(
             {
@@ -297,6 +351,8 @@ def detect_firebrands(
                 "avg_temp": float(np.mean(temps)),
                 "median_temp": float(np.median(temps)),
                 "area": int(area),
+                "length_px": length_px,
+                "width_px": width_px,
             }
         )
     return detections
@@ -356,6 +412,7 @@ def export_seq_to_csv_worker(seq_path: str, settings: Dict[str, Any]) -> Tuple[s
 
         reader = create_video_reader(seq_path)
         reader.set_emissivity(float(settings.get("emissivity", 0.9)))
+        s_m = reader_pixel_size_m(reader, settings.get("distance_m"))
         num_frames = reader.num_frames
         width = reader.width
         height = reader.height
@@ -381,41 +438,12 @@ def export_seq_to_csv_worker(seq_path: str, settings: Dict[str, Any]) -> Tuple[s
             detections = detect_firebrands(frame, roi, temp_thresh)
             tracked, detections, next_id = assign_tracks(detections, tracked, next_id, idx)
             for det in sorted(detections, key=lambda d: d.get("track_id", -1)):
-                x, y, w, h = det["bbox"]
-                rows.append(
-                    (
-                        idx + 1,
-                        det.get("track_id", -1),
-                        det["max_temp"],
-                        det.get("min_temp", det["max_temp"]),
-                        det.get("avg_temp", det["max_temp"]),
-                        det.get("median_temp", det["max_temp"]),
-                        det.get("area", 0),
-                        x,
-                        y,
-                        w,
-                        h,
-                    )
-                )
+                rows.append(detection_csv_row(idx + 1, det, s_m))
 
         out_path = str(Path(seq_path).with_suffix(".csv"))
         with open(out_path, "w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(
-                [
-                    "frame",
-                    "firebrand_id",
-                    "max_temperature",
-                    "min_temperature",
-                    "avg_temperature",
-                    "median_temperature",
-                    "area_pixels",
-                    "bbox_x",
-                    "bbox_y",
-                    "bbox_w",
-                    "bbox_h",
-                ]
-            )
+            writer.writerow(CSV_HEADER)
             writer.writerows(rows)
 
         return seq_path, out_path, None
@@ -589,6 +617,10 @@ class SKDDashboard(ctk.CTk, TkinterDnD.DnDWrapper if TkinterDnD else object):
         self.open_menu.add_command(label="Open file(s)...", command=self.on_open)
         self.open_menu.add_command(label="Open folder...", command=self.on_open_folder)
         
+        self.lbl_file = ctk.CTkLabel(ds_frame, text="No file open", font=font_data, anchor="w",
+                                     justify="left", wraplength=300)
+        self.lbl_file.pack(fill="x", padx=10, pady=(0, 6))
+
         nav_btns = ctk.CTkFrame(ds_frame, fg_color="transparent")
         nav_btns.pack(fill="x", padx=10, pady=(0,10))
         self.btn_prev_file = ctk.CTkButton(nav_btns, text="<< Prev", width=110, command=self.on_prev_file, font=font_ui)
@@ -629,6 +661,18 @@ class SKDDashboard(ctk.CTk, TkinterDnD.DnDWrapper if TkinterDnD else object):
         self.var_emissivity = tk.DoubleVar(value=0.9)
         self.entry_emissivity = ctk.CTkEntry(em_row, textvariable=self.var_emissivity, width=60, font=font_data)
         self.entry_emissivity.pack(side="right")
+
+        dist_row = ctk.CTkFrame(exp_frame, fg_color="transparent")
+        dist_row.pack(fill="x", padx=10, pady=2)
+        ctk.CTkLabel(dist_row, text="Distance (m):", font=font_ui).pack(side="left")
+        self.var_distance = tk.StringVar(value="")
+        self.entry_distance = ctk.CTkEntry(dist_row, textvariable=self.var_distance, width=60, font=font_data)
+        self.entry_distance.pack(side="right")
+        self.entry_distance.bind("<Return>", lambda _e: self._update_scale_label())
+        self.entry_distance.bind("<FocusOut>", lambda _e: self._update_scale_label())
+        self.lbl_scale = ctk.CTkLabel(exp_frame, text="Scale: -", font=font_data, text_color="gray",
+                                      anchor="w", justify="left", wraplength=300)
+        self.lbl_scale.pack(fill="x", padx=10, pady=(0, 4))
 
         rng_frame = ctk.CTkFrame(exp_frame, fg_color="transparent")
         rng_frame.pack(fill="x", padx=10, pady=5)
@@ -929,11 +973,48 @@ class SKDDashboard(ctk.CTk, TkinterDnD.DnDWrapper if TkinterDnD else object):
         self._update_range_button_labels()
     def _update_file_label(self):
         total = len(self.batch_paths)
-        name = os.path.basename(self.seq_path) if self.seq_path else "none"
-        idx_str = f" {self.batch_index+1}/{total}" if total else ""
-        if hasattr(self, "file_frame"):
-            self.file_frame.configure(text=f"Data source ({name}{idx_str})")
+        name = os.path.basename(self.seq_path) if self.seq_path else ""
+        if hasattr(self, "lbl_file"):
+            if not name:
+                text = "No file open"
+            else:
+                text = f"File {self.batch_index + 1} of {max(total, 1)}: {name}"
+            self.lbl_file.configure(text=text)
+        if name:
+            self.title(f"Firebrand Thermal Analysis - {name} ({self.batch_index + 1}/{max(total, 1)})")
+        else:
+            self.title("Firebrand Thermal Analysis")
         self._update_apply_labels()
+
+    def _distance_override(self) -> Optional[float]:
+        try:
+            d = float(str(self.var_distance.get()).strip())
+            return d if d > 0 else None
+        except Exception:
+            return None
+
+    def _current_pixel_size_m(self) -> Optional[float]:
+        reader = getattr(self, "reader", None)
+        if reader is None:
+            return None
+        return reader_pixel_size_m(reader, self._distance_override())
+
+    def _update_scale_label(self):
+        if not hasattr(self, "lbl_scale"):
+            return
+        reader = getattr(self, "reader", None)
+        if reader is None:
+            self.lbl_scale.configure(text="Scale: -")
+            return
+        s_m = self._current_pixel_size_m()
+        dist = self._distance_override() or reader.distance_m
+        if s_m:
+            fov = f"{reader.hfov_deg:g}° FOV" if reader.hfov_deg else "IFOV"
+            self.lbl_scale.configure(
+                text=f"Scale: {s_m * 1000:.3f} mm/px at {dist:g} m ({fov}, from {reader.scale_source})")
+        else:
+            self.lbl_scale.configure(text="Scale: unknown (no lens or distance in file); sizes in pixels only")
+        self._render_current()
     def _update_apply_labels(self):
         if not hasattr(self, "btn_apply_current") or not hasattr(self, "btn_apply_all"):
             return
@@ -994,6 +1075,7 @@ class SKDDashboard(ctk.CTk, TkinterDnD.DnDWrapper if TkinterDnD else object):
             "export_start": start_f,
             "export_end": end_f,
             "roi": self.roi_rect,
+            "distance_m": self._distance_override(),
         }
     def _auto_roi_from_frame(self, frame: np.ndarray, margin: int = 20) -> Tuple[int, int, int, int]:
         h, w = frame.shape
@@ -1058,6 +1140,8 @@ class SKDDashboard(ctk.CTk, TkinterDnD.DnDWrapper if TkinterDnD else object):
         self.var_export_end.set(settings.get("export_end", "max"))
         self.roi_rect = settings.get("roi")
         self.update_roi_fields_from_rect()
+        if settings.get("distance_m") and hasattr(self, "var_distance"):
+            self.var_distance.set(f"{settings['distance_m']:g}")
     def apply_current_settings(self):
         if not self.seq_path:
             return
@@ -1194,6 +1278,8 @@ class SKDDashboard(ctk.CTk, TkinterDnD.DnDWrapper if TkinterDnD else object):
             
             meta_emiss = self.reader.emissivity
             self._update_metadata_label(meta_emiss)
+            if hasattr(self, "var_distance"):
+                self.var_distance.set("" if self.reader.distance_m is None else f"{self.reader.distance_m:g}")
             if path in self.file_settings:
                 self._apply_settings(self.file_settings[path])
             else:
@@ -1210,6 +1296,7 @@ class SKDDashboard(ctk.CTk, TkinterDnD.DnDWrapper if TkinterDnD else object):
             if reset_settings:
                 self.apply_current_settings_all()
             self._update_range_button_labels()
+            self._update_scale_label()
             self.after(10, self._render_current)
         except Exception as e:
             traceback.print_exc()
@@ -1545,6 +1632,10 @@ class SKDDashboard(ctk.CTk, TkinterDnD.DnDWrapper if TkinterDnD else object):
                 cv2.circle(vis, (cx, cy), 3, (255,255,255), -1)
                 prefix = "Detect" if d.get('new_track') else "Tracking"
                 text = f"{prefix}: {d['max_temp']:.1f}{self.unit_label}"
+                s_m = self._current_pixel_size_m()
+                if s_m:
+                    dmm = sizes_mm(d.get('area', 0), d.get('length_px', w), d.get('width_px', h), s_m)
+                    text += f" | {dmm['length_mm']:.1f} mm"
                 org = (x, max(0, y-3))
                 cv2.putText(vis, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3, cv2.LINE_AA)
                 cv2.putText(vis, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
@@ -1646,6 +1737,10 @@ class SKDDashboard(ctk.CTk, TkinterDnD.DnDWrapper if TkinterDnD else object):
                 cv2.circle(vis, (cx, cy), 3, (255,255,255), -1)
                 prefix = "Detect" if d.get('new_track') else "Tracking"
                 text = f"{prefix}: {d['max_temp']:.1f}{self.unit_label}"
+                s_m = self._current_pixel_size_m()
+                if s_m:
+                    dmm = sizes_mm(d.get('area', 0), d.get('length_px', w), d.get('width_px', h), s_m)
+                    text += f" | {dmm['length_mm']:.1f} mm"
                 org = (x, max(0, y-3))
                 cv2.putText(vis, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3, cv2.LINE_AA)
                 cv2.putText(vis, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
@@ -1788,6 +1883,11 @@ class SKDDashboard(ctk.CTk, TkinterDnD.DnDWrapper if TkinterDnD else object):
                 start_use = max(1, min(start_f, num_frames))
                 if start_use > end_f:
                     start_use = end_f
+                try:
+                    meta = create_video_reader(seq_path)
+                    s_m = reader_pixel_size_m(meta, settings.get("distance_m"))
+                except Exception:
+                    s_m = None
                 tracked = OrderedDict()
                 next_id = 1
                 rows = []
@@ -1797,35 +1897,13 @@ class SKDDashboard(ctk.CTk, TkinterDnD.DnDWrapper if TkinterDnD else object):
                     detections = self._detect_firebrands(frame, roi, temp_thresh)
                     tracked, detections, next_id = self._assign_tracks(detections, tracked, next_id, idx)
                     for det in sorted(detections, key=lambda d: d.get('track_id', -1)):
-                        x, y, w, h = det['bbox']
-                        rows.append((
-                            idx + 1,
-                            det.get('track_id', -1),
-                            det['max_temp'],
-                            det.get('min_temp', det['max_temp']),
-                            det.get('avg_temp', det['max_temp']),
-                            det.get('median_temp', det['max_temp']),
-                            det.get('area', 0),
-                            x, y, w, h
-                        ))
+                        rows.append(detection_csv_row(idx + 1, det, s_m))
                     self.status.configure(text=f"Status: exporting CSV [{p_idx+1}/{len(paths)}]: {os.path.basename(seq_path)} frame {idx+1}/{num_frames} (range {start_use}-{end_f})")
                     self.update_idletasks()
                 out_path = str(Path(seq_path).with_suffix(".csv"))
                 with open(out_path, "w", newline="") as f:
                     writer = csv.writer(f)
-                    writer.writerow([
-                        "frame",
-                        "firebrand_id",
-                        "max_temperature",
-                        "min_temperature",
-                        "avg_temperature",
-                        "median_temperature",
-                        "area_pixels",
-                        "bbox_x",
-                        "bbox_y",
-                        "bbox_w",
-                        "bbox_h",
-                    ])
+                    writer.writerow(CSV_HEADER)
                     writer.writerows(rows)
                 self.status.configure(text=f"Status: CSV saved: {out_path}")
             self.width = original_width

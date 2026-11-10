@@ -163,6 +163,10 @@ def cmd_aggregate(a) -> int:
             "firebrand_tracks": s.get("firebrand_tracks", s["firebrand_count"]),
             "confirmed_tracks": s["confirmed_tracks"],
             "zone_share": (s.get("derived") or {}).get("zone_share"),
+            "first_generation_s": s.get("first_generation_s"),
+            "median_generation_s": s.get("median_generation_s"),
+            "median_equiv_diameter_mm": s.get("median_equiv_diameter_mm"),
+            "median_length_mm": s.get("median_length_mm"),
             "zone_threshold": (s.get("derived") or {}).get("zone_threshold"),
             "ignition_time_s": s["ignition_time_s"],
             "duration_s": frames / s["fps"] if s.get("fps") else None,
@@ -180,7 +184,8 @@ def cmd_aggregate(a) -> int:
         sys.exit(f"no summary.json found under {a.results}")
     cols = ["recording", "experiment", "fuel_type", "species", "hazard_rating", "hrr", "structure", "class",
             "section", "segment", "shape", "length", "run", "firebrand_count", "firebrand_tracks",
-            "confirmed_tracks", "zone_share", "zone_threshold",
+            "confirmed_tracks", "first_generation_s", "median_generation_s", "median_equiv_diameter_mm",
+            "median_length_mm", "zone_share", "zone_threshold",
             "ignition_time_s", "duration_s", "short_post_ignition", "fps", "m_per_px", "params_hash",
             "detection_params_hash", "detection_code_version", "tracking_code_version", "retracked"]
     rows.sort(key=lambda r: r["recording"])
