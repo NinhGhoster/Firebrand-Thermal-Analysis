@@ -28,6 +28,8 @@
 #       FTA_CLI.py review-merge $W/review/batch1 $W/review/parts/*
 #   EXTRA="--set persist_frac=0.2" spartan/submit_array.sh ...   (only --set pairs)
 #   RUN_OPTS="--qa" spartan/submit_array.sh ...                   (options that do not change results)
+#   RESULTS=results_pilot4 LIST=$W/worklist_pilot4.tsv spartan/submit_array.sh --array=1-20
+#       writes to another results tree (default results/)
 #
 # A task is done only when its summary.json carries the same parameter
 # fingerprint as this submission (and, with REVIEW, when its review part was
@@ -89,8 +91,10 @@ for ((i = 0; i < ${#EXTRA_W[@]}; i += 2)); do
         || { echo "EXTRA may hold only --set NAME=VALUE pairs; got: $EXTRA" >&2; exit 2; }
 done
 [[ -z "$RUN_OPTS" || "$RUN_OPTS" == "--qa" ]] || { echo "RUN_OPTS may only be --qa; got: $RUN_OPTS" >&2; exit 2; }
-OUT=$W/results/$LABEL
-case "$OUT" in "$W/results/"?*) ;; *) echo "refusing output path $OUT" >&2; exit 2 ;; esac
+RESULTS=${RESULTS:-results}               # results tree under $W, e.g. RESULTS=results_pilot4
+[[ "$RESULTS" =~ ^results[a-z0-9_]*$ ]] || { echo "bad RESULTS=$RESULTS" >&2; exit 2; }
+OUT=$W/$RESULTS/$LABEL
+case "$OUT" in "$W/$RESULTS/"?*) ;; *) echo "refusing output path $OUT" >&2; exit 2 ;; esac
 if [ -d "$OUT" ] && [ -n "$(find "$OUT" -mindepth 2 -name summary.json -print -quit)" ]; then
     echo "refusing $OUT: it contains other recordings' results" >&2; exit 2
 fi

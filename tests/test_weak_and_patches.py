@@ -95,6 +95,12 @@ class TestWeakTracking:
         assert not any(t["is_firebrand"] for t in off["tracks"])
         assert sum(t["is_firebrand"] for t in on["tracks"]) == 1
 
+    def test_the_tracking_cut_drops_weak_readings_below_it(self):
+        fps = 30.3
+        cut = _run(_cooling_flight(fps, 0.35, 0.65, v=(1.5, 3.0)), fps, weak_low_c=250.0, weak_track_min_c=280.0)
+        assert all(t["n_weak"] == 0 for t in cut["tracks"])          # the 270 C readings are below it
+        assert any(d.get("weak") for d in cut["detections"])          # but still detected and saved
+
     def test_weak_readings_alone_never_make_a_track(self):
         fps = 30.3
         res = _run(_cooling_flight(fps, -1.0, 0.6), fps, weak_low_c=250.0)   # never hot

@@ -1,0 +1,14 @@
+# Ten recordings added to the 10-recording pilot for the recall work (2026-11-11): weak readings,
+# appearance patches and more labels. Drawn with random.Random(2611): one per treatment group
+# (fuel, species, rating or structure, HRR, shape) that neither the pilot nor the held-out list
+# covers, two of them from groups' ~15 fps recordings. None is in heldout_review.txt.
+fibrous_bark/E_obliqua/High/150kW/S19
+fibrous_bark/E_obliqua/Very_high/100kW/S26
+candlebark/E_rubida/50kW/cylindrical/60cm/cylindrical2_50kW_60cm
+fibrous_bark/E_obliqua/Extreme/100kW/S32
+fibrous_bark/E_obliqua/Very_high/150kW/S19
+preliminary_branchlet_test/23
+candlebark/E_rubida/150kW/cylindrical/60cm/cylindrical1_150kW_60cm
+branchlet/Eucalyptus/150kW/Twigs/40
+candlebark/E_rubida/50kW/flat/40cm/flat1_50kW_40cm
+candlebark/E_rubida/150kW/flat/20cm/flat1_150kW_20cm

@@ -202,6 +202,8 @@ def track_classify(dets_by_frame: Dict[int, List[Dict]], span: Tuple[int, int], 
             xi = min(W - 1, max(0, int(round(d["cx"]))))
             yi = min(H - 1, max(0, int(round(d["cy"]))))
             d["in_zone"] = bool(zone[yi, xi])
+            if d.get("weak") and p.weak_track_min_c is not None and d["max_c"] < p.weak_track_min_c:
+                continue                            # below the tracking cut: never tracked
             if not d["in_zone"]:
                 outside.setdefault(c, []).append(d)
     # crowding counts hot detections only, so it means the same with or without weak readings

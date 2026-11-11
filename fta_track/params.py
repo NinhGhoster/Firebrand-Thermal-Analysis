@@ -40,6 +40,9 @@ class Params:
     weak_low_c: Optional[float] = None
     weak_max_area_px: int = 50
     weak_near_hot_px: int = 2
+    # Tracking stage: weak detections below this are ignored (None: all of them). Lets the
+    # cut be tuned by a retrack without re-reading the NetCDF; it cannot go below weak_low_c.
+    weak_track_min_c: Optional[float] = None
     # Appearance: a patch_px x patch_px temperature patch centred on every detection, saved to
     # patches.npz (0 = off).
     patch_px: int = 0
