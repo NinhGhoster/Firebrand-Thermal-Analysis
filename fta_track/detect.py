@@ -30,6 +30,35 @@ from .optics import blob_extent_px
 _CROSS = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
 
 
+def detect_weak_blobs(frame: np.ndarray, hot: np.ndarray, low_c: float, max_area: int, near_px: int,
+                      ring_px: int, min_edge: float, samples: Optional[Sequence[np.ndarray]] = None) -> List[Dict]:
+    """Small hard-edged spots reading low_c <= T < the hot threshold, away from any hot pixel.
+
+    A component that comes within near_px of a hot pixel is dropped whole: it is the halo of a
+    hot blob, not an object of its own. Each kept blob carries weak=True.
+    """
+    weak = (frame >= low_c) & ~hot
+    if not weak.any():
+        return []
+    n, lab = cv2.connectedComponents(weak.astype(np.uint8), connectivity=8)
+    if near_px > 0 and hot.any():
+        k = 2 * near_px + 1
+        near = cv2.dilate(hot.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))).astype(bool)
+        bad = np.unique(lab[near & weak])
+        weak = weak & ~np.isin(lab, bad)
+    out = [d for d in detect_blobs(frame, weak, np.zeros_like(weak), 1, max_area, ring_px, samples)
+           if np.isfinite(d["edge_grad"]) and d["edge_grad"] >= min_edge]
+    for d in out:
+        d["weak"] = True
+    return out
+
+
+def patch_at(frame: np.ndarray, cx: float, cy: float, size: int) -> np.ndarray:
+    """size x size temperatures centred on the pixel nearest (cx, cy); edges replicated."""
+    c = (float(int(round(cx))), float(int(round(cy))))
+    return cv2.getRectSubPix(np.ascontiguousarray(frame, dtype=np.float32), (size, size), c).astype(np.float16)
+
+
 def detect_blobs(frame: np.ndarray, hot: np.ndarray, persistent: np.ndarray,
                  min_area: int, max_area: int, ring_px: int,
                  samples: Optional[Sequence[np.ndarray]] = None) -> List[Dict]:

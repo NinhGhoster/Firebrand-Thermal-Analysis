@@ -99,6 +99,7 @@ def track_features(points: List[tuple], fps: float, s: float, ctx: Dict, p: Para
     vx, vy = velocity_series(t, X, Y, dv["lsq_points"])
     speed = np.hypot(vx, vy)
     tmax = np.array([d["max_c"] for _, d in points])
+    weak = np.array([bool(d.get("weak")) for _, d in points])
     tmean = np.array([d["mean_c"] for _, d in points])
     area = np.array([d["area"] for _, d in points], dtype=float)
     # length and width: the blob's minimum-area rectangle (older detections: its box)
@@ -116,7 +117,7 @@ def track_features(points: List[tuple], fps: float, s: float, ctx: Dict, p: Para
     zd = _at(zone_dist, xs, ys).astype(float)
     crowd = np.asarray(ctx.get("crowd") or [np.nan] * len(points), dtype=float)
     solid = ~(np.nan_to_num(egrad, nan=np.inf) < p.min_edge_grad)   # missing (older outputs) counts as solid
-    evidence = (np.nan_to_num(contrast, nan=-1.0) >= p.min_contrast_c) & solid
+    evidence = (np.nan_to_num(contrast, nan=-1.0) >= p.min_contrast_c) & solid & ~weak
 
     n = len(points)
     # typical frame-to-frame size change: a solid firebrand stays near 0, gas puffs do not
@@ -128,10 +129,12 @@ def track_features(points: List[tuple], fps: float, s: float, ctx: Dict, p: Para
     ign = ctx.get("ignition_frame")
 
     evx, evy, et, emethod, espan = launch_velocity(t, X, Y, p.exit_fit_s)
-    cool = lsq_slope(t, tmax) if n >= 4 and t[-1] > t[0] else float("nan")
+    th, tm = t[~weak], tmax[~weak]
+    cool = lsq_slope(th, tm) if th.size >= 4 and th[-1] > th[0] else float("nan")
     finite = np.isfinite(speed)
     return {
         "n_det": n,
+        "n_weak": int(weak.sum()),
         "n_evidence": int(evidence.sum()),
         "max_contrast_c": float(np.nanmax(contrast)) if np.isfinite(contrast).any() else float("nan"),
         "smooth_px": smoothness_px(frames, xs, ys, p.smooth_points),
@@ -165,7 +168,9 @@ def track_features(points: List[tuple], fps: float, s: float, ctx: Dict, p: Para
         "mean_speed_mps": float(np.nanmean(speed)) if finite.any() else float("nan"),
         "max_speed_mps": float(np.nanmax(speed)) if finite.any() else float("nan"),
         "vert_accel_mps2": vertical_acceleration(t, Y),
-        "peak_c": float(tmax.max()), "mean_c": float(tmean.mean()),
+        # temperatures from calibrated (hot) readings only; a weak reading is position only
+        "peak_c": float(tmax[~weak].max()) if (~weak).any() else float("nan"),
+        "mean_c": float(tmean[~weak].mean()) if (~weak).any() else float("nan"),
         "cooling_c_per_s": cool,
         "mean_area_px": float(area.mean()),
         "area_jump": area_jump,
@@ -174,7 +179,7 @@ def track_features(points: List[tuple], fps: float, s: float, ctx: Dict, p: Para
         "_series": {"frame": frames.astype(int), "t": t, "x_px": xs, "y_px": ys, "X": X, "Y": Y,
                     "vx": vx, "vy": vy, "speed": speed, "max_c": tmax, "mean_c": tmean, "area": area,
                     "contrast": contrast, "edge_grad": egrad, "zone_dist": zd, "crowd": crowd,
-                    "area_mm2": area_mm2, "length_mm": length_mm},
+                    "area_mm2": area_mm2, "length_mm": length_mm, "weak": weak},
     }
 
 
@@ -195,7 +200,7 @@ def classify(f: Dict, p: Params, dv: Dict) -> Tuple[str, str]:
         fails.append("too_little_displacement")
     if p.max_crowding is not None and math.isfinite(f["crowding"]) and f["crowding"] > p.max_crowding:
         fails.append("crowded")
-    if f["peak_c"] < p.min_peak_c:
+    if not (f["peak_c"] >= p.min_peak_c):                  # NaN fails
         fails.append("too_cool")
     if not (f["mean_speed_mps"] >= p.min_speed_mps):     # NaN fails
         fails.append("too_slow")

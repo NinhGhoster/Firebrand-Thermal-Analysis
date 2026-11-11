@@ -30,6 +30,19 @@ class Params:
     min_area_px: int = 1          # a 1-px blob may start a track; tracking filters noise
     max_area_px: int = 2000       # ~52 cm^2 at 1.62 mm/px: large bark pieces must not be lost
     ring_px: int = 3              # width of the local-background ring around a blob
+    # Weak readings (off unless weak_low_c is set). The camera is calibrated from 300 C up, but
+    # the files keep whole-degree values below it, so an ember that cools or shrinks below the
+    # threshold still shows as a small hard-edged spot. Blobs >= weak_low_c and < hot_thresh_c,
+    # at most weak_max_area_px, farther than weak_near_hot_px from any hot pixel (not an ember's
+    # own halo) and with an edge step >= min_edge_grad (solid, not gas) are kept as weak
+    # detections. They may continue an established track but never start one, and never count
+    # towards its peak, evidence or crowding: position only, never a reported temperature.
+    weak_low_c: Optional[float] = None
+    weak_max_area_px: int = 50
+    weak_near_hot_px: int = 2
+    # Appearance: a patch_px x patch_px temperature patch centred on every detection, saved to
+    # patches.npz (0 = off).
+    patch_px: int = 0
     # Temporal background: what the blob's own pixels usually read, as the median
     # of this many frames sampled across the persistence window. Unlike the ring,
     # it is not dragged down by cold air beside a hot rail or panel edge.

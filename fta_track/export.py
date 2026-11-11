@@ -39,18 +39,22 @@ TRACK_COLS = [
     "peak_c", "mean_c", "cooling_c_per_s", "mean_area_px", "area_jump", "edge_grad",
     "exit_t_s", "exit_fit", "exit_span_s",
     "generation_time_s", "area_mm2", "equiv_diameter_mm", "length_mm", "width_mm", "max_length_mm",
+    "n_weak",
 ]
 POINT_COLS = ["track_id", "firebrand_id", "is_firebrand", "frame", "time_s", "x_px", "y_px", "x_m", "y_m",
               "vx_mps", "vy_mps", "speed_mps", "max_c", "mean_c", "contrast_c", "edge_grad",
-              "zone_dist_px", "crowding", "area_px", "area_mm2", "length_mm"]
+              "zone_dist_px", "crowding", "area_px", "area_mm2", "length_mm", "weak"]
 DET_COLS = ["frame", "time_s", "track_id", "x_px", "y_px", "bbox_x", "bbox_y", "bbox_w", "bbox_h",
             "area_px", "max_c", "mean_c", "median_c", "bg_c", "bg_t_c", "edge_grad", "excess_c_px", "in_zone",
-            "length_px", "width_px"]
+            "length_px", "width_px", "weak"]
 # Parameters that set the pixel scale: always taken from the run, even with --from-defaults.
 SCALE_PARAMS = ("m_per_px", "lens_hfov_deg")
 # Parameters used by the detection pass; changing any of them needs a new `run`.
 DETECTION_PARAMS = ("hot_thresh_c", "ignition_min_px", "min_area_px", "max_area_px", "ring_px",
-                    "bg_samples", "persist_window_s", "persist_frac", "persist_dilate_px")
+                    "bg_samples", "persist_window_s", "persist_frac", "persist_dilate_px",
+                    "weak_low_c", "weak_max_area_px", "weak_near_hot_px", "patch_px")
+# Detection parameters added later: outputs that predate them were made with these values.
+DETECTION_PARAM_DEFAULTS = {"weak_low_c": None, "weak_max_area_px": 50, "weak_near_hot_px": 2, "patch_px": 0}
 
 
 def _fmt(v, nd=4):
@@ -134,7 +138,8 @@ def _write_tables(out_dir: str, res: Dict, fps: float, width: int, height: int, 
                             _fmt(s["vx"][k]), _fmt(s["vy"][k]), _fmt(s["speed"][k]),
                             _fmt(s["max_c"][k], 2), _fmt(s["mean_c"][k], 2), _fmt(s["contrast"][k], 2),
                             _fmt(s["edge_grad"][k], 2), _fmt(s["zone_dist"][k], 1), _fmt(s["crowd"][k], 2),
-                            int(s["area"][k]), _fmt(s["area_mm2"][k], 3), _fmt(s["length_mm"][k], 3)])
+                            int(s["area"][k]), _fmt(s["area_mm2"][k], 3), _fmt(s["length_mm"][k], 3),
+                            _fmt(bool(s["weak"][k]) if "weak" in s else False)])
 
     with gzip.open(st.path("detections.csv.gz"), "wt", newline="") as fh:
         w = csv.writer(fh)
@@ -146,7 +151,7 @@ def _write_tables(out_dir: str, res: Dict, fps: float, width: int, height: int, 
                         _fmt(d["max_c"], 2), _fmt(d["mean_c"], 2), _fmt(d["median_c"], 2),
                         _fmt(d["bg_c"], 2), _fmt(d.get("bg_t_c"), 2), _fmt(d.get("edge_grad"), 2),
                         _fmt(d["excess"], 1), _fmt(bool(d.get("in_zone", False))),
-                        _fmt(d.get("length_px"), 2), _fmt(d.get("width_px"), 2)])
+                        _fmt(d.get("length_px"), 2), _fmt(d.get("width_px"), 2), _fmt(bool(d.get("weak")))])
 
     fb_ids = {t["track_id"] for t in tracks if t["is_firebrand"]}
     safe = (label or "recording").replace("/", "__")
@@ -236,6 +241,12 @@ def write_outputs(out_dir: str, res: Dict, rec, p, label: str = "",
         _write_tables(out_dir, res, rec.fps, rec.width, rec.height, label or rec.path, st)
         hf = res["hot_frac"].astype(np.float16)
         np.savez_compressed(st.path("hot_fraction.npz"), hot_frac=hf)
+        if res.get("patches") is not None:
+            # row k is detections.csv.gz row k; frame/x/y let a reader check the alignment
+            np.savez_compressed(st.path("patches.npz"), patches=res["patches"],
+                                frame=np.array([d["frame"] for d in res["detections"]], dtype=np.int32),
+                                x=np.array([d["cx"] for d in res["detections"]], dtype=np.float32),
+                                y=np.array([d["cy"] for d in res["detections"]], dtype=np.float32))
         pic = cv2.applyColorMap((np.clip(hf.astype(np.float32) / 0.5, 0, 1) * 255).astype(np.uint8),
                                 cv2.COLORMAP_VIRIDIS)
         cv2.imwrite(st.path("hot_fraction.png"), pic)
@@ -303,6 +314,10 @@ def resolve_retrack_params(out_dir: str, overrides: Dict, from_defaults: bool = 
     recorded = {k: v for k, v in raw.items() if k in known}
     dropped = sorted(set(raw) - known)
     missing = sorted(known - set(raw))
+    for k, v in DETECTION_PARAM_DEFAULTS.items():     # made before these existed: they were off
+        if k not in recorded:
+            recorded[k] = v
+            missing = [m for m in missing if m != k]
     if not from_defaults and (dropped or missing or "params_hash" not in summary):
         raise ValueError(
             f"{out_dir}: made by an older version of the code (parameters no longer used: "
@@ -352,6 +367,7 @@ def retrack(out_dir: str, overrides: Optional[Dict] = None, from_defaults: bool 
                 "excess": float(r["excess_c_px"]) if r["excess_c_px"] else nan,
                 "length_px": float(r["length_px"]) if r.get("length_px") else None,
                 "width_px": float(r["width_px"]) if r.get("width_px") else None,
+                "weak": r.get("weak") == "1",
             })
     hot_frac = np.load(os.path.join(out_dir, "hot_fraction.npz"))["hot_frac"].astype(np.float32)
     fps = float(summary["fps"])

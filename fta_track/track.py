@@ -37,7 +37,9 @@ Deliberately avoids the defects found in firebrand-vision's tracker:
   - a link is refused when the two areas differ by more than `area_ratio_max`,
     so a gas puff and a speck are never chained together, or when the two peak
     temperatures' excesses over the threshold differ by more than `excess_ratio_max`,
-    so a hot ember is never continued by a flicker hovering at the threshold.
+    so a hot ember is never continued by a flicker hovering at the threshold;
+  - a weak detection (below the threshold, see Params.weak_low_c) never starts a track,
+    joins only an established one, skips the excess test and leaves the track's peak alone.
 """
 
 from __future__ import annotations
@@ -84,7 +86,8 @@ class _Track:
         self.P = (np.eye(4) - K @ _H) @ self.P
         self.points.append((frame, det))
         self.area = float(det["area"])
-        self.peak = float(det.get("max_c", np.nan))
+        if not det.get("weak"):                # a weak reading is position only
+            self.peak = float(det.get("max_c", np.nan))
         self.hits += 1
         self.misses = 0
 
@@ -107,7 +110,8 @@ class Tracker:
         self.finished: List[_Track] = []
         self._next_id = 1
 
-    def _cost_row(self, t: _Track, obs: np.ndarray, da: np.ndarray, dpeak: np.ndarray, frame: int) -> np.ndarray:
+    def _cost_row(self, t: _Track, obs: np.ndarray, da: np.ndarray, dpeak: np.ndarray, frame: int,
+                  dweak: Optional[np.ndarray] = None) -> np.ndarray:
         """Cost of linking track t to each detection; _BIG outside its gate."""
         ratio = np.maximum(t.area + 2.0, da) / np.minimum(t.area + 2.0, da)
         size_ok = ratio <= self.area_ratio_max
@@ -116,10 +120,14 @@ class Tracker:
             ed = np.maximum(dpeak - self.excess_base, 1.0)
             with np.errstate(invalid="ignore"):
                 warm_ok = ~(np.maximum(et, ed) / np.minimum(et, ed) > self.excess_ratio_max)
+            if dweak is not None:
+                warm_ok = warm_ok | dweak          # below the threshold the excess means nothing
             size_ok = size_ok & warm_ok
         if t.hits < 2:
             dist = np.linalg.norm(obs - t.x[:2], axis=1)
             ok = size_ok & (dist <= self.gate_new)
+            if dweak is not None:
+                ok = ok & ~dweak                   # weak readings only continue established tracks
             c = dist
         else:
             nu = obs - (_H @ t.x)
@@ -140,7 +148,9 @@ class Tracker:
         obs = np.array([[dets[i]["cx"], dets[i]["cy"]] for i in free])
         da = np.array([dets[i]["area"] for i in free], dtype=float) + 2.0
         dpeak = np.array([dets[i].get("max_c", np.nan) for i in free], dtype=float)
-        cost = np.vstack([self._cost_row(self.live[ti], obs, da, dpeak, frame) for ti in track_idx])
+        dweak = np.array([bool(dets[i].get("weak")) for i in free])
+        cost = np.vstack([self._cost_row(self.live[ti], obs, da, dpeak, frame, dweak if dweak.any() else None)
+                          for ti in track_idx])
         rows, cols = linear_sum_assignment(cost)
         for r, c in zip(rows, cols):
             if cost[r, c] >= _BIG:
@@ -177,7 +187,7 @@ class Tracker:
             survivors.append(t)
 
         for di, d in enumerate(dets):
-            if di not in matched_d:
+            if di not in matched_d and not d.get("weak"):
                 survivors.append(_Track(frame, d, self.q, self.r, self.gate_new))
         self.live = survivors
 

@@ -26,7 +26,7 @@ import numpy as np
 
 from .background import PersistenceWindow
 from .classify import classify, flame_zone, track_features, zone_distance, zone_threshold
-from .detect import detect_blobs
+from .detect import detect_blobs, detect_weak_blobs, patch_at
 from .params import Params
 from .track import Tracker
 from .units import metres_per_pixel, recording_hfov_deg
@@ -62,8 +62,14 @@ def detect_stream(frames: Iterable[Tuple[int, np.ndarray]], shape: Tuple[int, in
         state["n_post"] += 1
         while samples and samples[0][0] < c - half:
             samples.popleft()
-        dets = detect_blobs(frame, hot, mask, p.min_area_px, p.max_area_px, p.ring_px,
-                            [f for _, f in samples])
+        smp = [f for _, f in samples]
+        dets = detect_blobs(frame, hot, mask, p.min_area_px, p.max_area_px, p.ring_px, smp)
+        if p.weak_low_c is not None:
+            dets += detect_weak_blobs(frame, hot, p.weak_low_c, p.weak_max_area_px, p.weak_near_hot_px,
+                                      p.ring_px, p.min_edge_grad, smp)
+        if p.patch_px:
+            for d in dets:
+                d["patch"] = patch_at(frame, d["cx"], d["cy"], p.patch_px)
         if dets:
             for d in dets:
                 d["frame"] = c
@@ -198,6 +204,8 @@ def track_classify(dets_by_frame: Dict[int, List[Dict]], span: Tuple[int, int], 
             d["in_zone"] = bool(zone[yi, xi])
             if not d["in_zone"]:
                 outside.setdefault(c, []).append(d)
+    # crowding counts hot detections only, so it means the same with or without weak readings
+    outside_hot = {c: [d for d in ds if not d.get("weak")] for c, ds in outside.items()}
     tracker = Tracker(dv["gate_new_px"], dv["q_px"], p.kalman_r_px, p.gate_chi2, p.gate_floor_px,
                       dv["max_miss_frames"], dv["min_hits"], p.track_area_ratio_max,
                       p.track_excess_ratio_max, p.hot_thresh_c - p.excess_floor_c)
@@ -206,7 +214,7 @@ def track_classify(dets_by_frame: Dict[int, List[Dict]], span: Tuple[int, int], 
     rows = []
     for t in tracker.flush():
         own = {id(d) for _, d in t.points}
-        crowd = [_crowding(outside, f, d, own, dv["crowd_frames"], p.crowd_radius_px) for f, d in t.points]
+        crowd = [_crowding(outside_hot, f, d, own, dv["crowd_frames"], p.crowd_radius_px) for f, d in t.points]
         ctx = {"zone_dist": zdist, "hot_frac": hot_frac, "ignition_frame": span[0], "crowd": crowd}
         f = track_features(t.points, fps, s, ctx, p, dv)
         reason, fails = classify(f, p, dv)
@@ -241,8 +249,12 @@ def run_frames(frames: Iterable[Tuple[int, np.ndarray]], shape: Tuple[int, int],
         tracks, dv, zone = track_classify(det["dets_by_frame"], (det["ignition_frame"], det["last_frame"]),
                                           fps, s, det["hot_frac"], det["n_post"], p)
     all_dets = [d for c in sorted(det["dets_by_frame"]) for d in det["dets_by_frame"][c]]
+    patches = None
+    if p.patch_px and all_dets:
+        patches = np.stack([d.pop("patch") for d in all_dets])
     return {
         "detections": all_dets,
+        "patches": patches,
         "tracks": tracks,
         "ignition_frame": det["ignition_frame"],
         "first_frame": det["first_frame"], "last_frame": det["last_frame"],
