@@ -213,6 +213,10 @@ def track_classify(dets_by_frame: Dict[int, List[Dict]], span: Tuple[int, int], 
                       p.track_excess_ratio_max, p.hot_thresh_c - p.excess_floor_c)
     for c in range(span[0], span[1] + 1):
         tracker.step(c, outside.get(c, []))
+    clf = None
+    if p.classifier:
+        from . import learned
+        clf = learned.load(p.classifier)
     rows = []
     for t in tracker.flush():
         own = {id(d) for _, d in t.points}
@@ -220,6 +224,21 @@ def track_classify(dets_by_frame: Dict[int, List[Dict]], span: Tuple[int, int], 
         ctx = {"zone_dist": zdist, "hot_frac": hot_frac, "ignition_frame": span[0], "crowd": crowd}
         f = track_features(t.points, fps, s, ctx, p, dv)
         reason, fails = classify(f, p, dv)
+        f["fb_prob"] = None
+        if clf is not None:
+            basic = [x for x in fails.split(";") if x in learned.BASIC_TESTS]
+            fails = ";".join(basic)              # the rule's other tests do not decide here
+            if basic:
+                reason = basic[0]
+            else:
+                hot = [(d["max_c"], d.get("patch")) for _, d in t.points if not d.get("weak")]
+                if any(pt is None for _, pt in hot):
+                    raise ValueError("the classifier needs a patch for every detection: run with patch_px=15")
+                x = learned.feature_vector(f, [m for m, _ in hot], [pt for _, pt in hot])
+                f["fb_prob"] = float(clf.prob(x)[0])
+                cut = p.classifier_cut if p.classifier_cut is not None else clf.cut
+                reason = "" if f["fb_prob"] >= cut else "classifier"
+                fails = reason
         f["track_id"] = t.public_id
         f["is_firebrand"] = reason == ""
         f["reject_reason"] = reason

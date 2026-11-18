@@ -57,6 +57,8 @@ def _parse_overrides(pairs) -> dict:
                 if val.lower() not in ("1", "0", "true", "false", "yes", "no"):
                     raise ValueError(val)
                 out[key] = val.lower() in ("1", "true", "yes")
+            elif "str" in ftype:
+                out[key] = val
             elif "int" in ftype:
                 f = float(val)
                 if not f.is_integer():
@@ -268,6 +270,78 @@ def cmd_review_score(a) -> int:
     return 0
 
 
+def cmd_train_classifier(a) -> int:
+    """Train the learned classifier from labelled review clips and their results tree."""
+    import csv as _csv
+    import gzip as _gzip
+
+    import numpy as np
+
+    from fta_track import learned
+
+    verdict = {}
+    for path in a.labels:
+        d = json.load(open(path))
+        if isinstance(d, dict):                       # {clip id: verdict}
+            verdict.update(d)
+        else:                                         # labeller jobs: [{who, labels: [...]}]
+            for j in d:
+                if j.get("who") == a.labeller and j.get("labels"):
+                    verdict.update({l["id"]: l["verdict"] for l in j["labels"]})
+    clips = json.load(open(a.manifest))["clips"]
+    cache = {}
+
+    def rec(label):
+        if label not in cache:
+            d = os.path.join(a.results, label)
+            tracks = {int(r["track_id"]): r for r in _csv.DictReader(open(os.path.join(d, "tracks.csv")))}
+            pts = {}
+            with _gzip.open(os.path.join(d, "track_points.csv.gz"), "rt") as fh:
+                for r in _csv.DictReader(fh):
+                    pts.setdefault(int(r["track_id"]), []).append(r)
+            z = np.load(os.path.join(d, "patches.npz"))
+            idx = {(int(f), round(float(x), 1), round(float(y), 1)): k
+                   for k, (f, x, y) in enumerate(zip(z["frame"], z["x"], z["y"]))}
+            cache[label] = (tracks, pts, z["patches"], idx)
+        return cache[label]
+
+    X, y, groups, ids, skipped = [], [], [], [], {"unlabelled or u": 0, "fails a basic test": 0, "no patch": 0}
+    for c in clips:
+        v = verdict.get(c["id"])
+        if v is None or v == "u":
+            skipped["unlabelled or u"] += 1
+            continue
+        tracks, pts, P, idx = rec(c["label"])
+        t = tracks[int(c["track_id"])]
+        if any(x in learned.BASIC_TESTS for x in (t.get("fails") or "").split(";")):
+            skipped["fails a basic test"] += 1
+            continue
+        hot = [r for r in pts[int(c["track_id"])] if r.get("weak") != "1"]
+        ks = [idx.get((int(r["frame"]), round(float(r["x_px"]), 1), round(float(r["y_px"]), 1))) for r in hot]
+        if any(k is None for k in ks):
+            skipped["no patch"] += 1
+            continue
+        X.append(learned.feature_vector(t, [float(r["max_c"]) for r in hot], [P[k] for k in ks]))
+        y.append(int(v == "y"))
+        groups.append(c["label"])
+        ids.append(c["id"])
+    X, y, groups = np.array(X), np.array(y), np.array(groups)
+    print(f"training on {len(y)} tracks ({y.sum()} firebrands) from {len(set(groups))} recordings; skipped {skipped}")
+    clf, rep = learned.train(X, y, groups, a.target, meta={"results": a.results, "manifest": a.manifest,
+                                                            "labels": a.labels, "labeller": a.labeller,
+                                                            "n_train": int(len(y))})
+    print(f"leaving one recording out: keeps {rep['kept']}, firebrands {rep['firebrands_kept']}/{rep['firebrands']} "
+          f"(recall {rep['recall']}), precision {rep['precision']}; final cut-off {clf.cut:.3f}")
+    clf.save(a.out)
+    with open(os.path.splitext(a.out)[0] + "_training.csv", "w", newline="") as fh:
+        w = _csv.writer(fh)
+        w.writerow(["clip_id", "recording", "firebrand"] + learned.FEATURES)
+        for i, g, yy, row in zip(ids, groups, y, X):
+            w.writerow([i, g, int(yy)] + [f"{v:.6g}" for v in row])
+    print(f"-> {a.out}")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="FTA_CLI.py", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -339,6 +413,16 @@ def main(argv=None) -> int:
     sc.add_argument("batch", help="batch directory")
     sc.add_argument("verdicts", help="verdicts.json downloaded from the review page")
     sc.set_defaults(func=cmd_review_score)
+
+    tc = sub.add_parser("train-classifier", help="train the learned firebrand classifier from labelled clips")
+    tc.add_argument("--results", required=True, help="results tree the clips were rendered from (with patches)")
+    tc.add_argument("--manifest", required=True, help="the review batch's manifest.json (answer key)")
+    tc.add_argument("--labels", required=True, action="append",
+                    help="labels: labeller jobs JSON or {clip id: verdict}; repeatable")
+    tc.add_argument("--labeller", default="A", help="whose verdicts to use from labeller jobs JSON")
+    tc.add_argument("--target", type=float, default=0.9, help="precision the cut-off is chosen for")
+    tc.add_argument("--out", required=True, help="model file (.pkl); a _training.csv is written beside it")
+    tc.set_defaults(func=cmd_train_classifier)
 
     a = ap.parse_args(argv)
     return a.func(a)

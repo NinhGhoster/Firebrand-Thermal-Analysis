@@ -142,6 +142,12 @@ class Params:
     # held-out review measures the precision on recordings these values never saw.
     min_peak_c: float = 450.0
     min_speed_mps: float = 0.4
+    # Learned classifier (fta_track.learned): 'builtin' or a model path. When set it decides,
+    # in place of the three tests above (peak, crowding, speed), for every track that passes the
+    # basic tests; it needs the run's patches (patch_px > 0). classifier_cut overrides the
+    # model's own probability cut-off.
+    classifier: Optional[str] = None
+    classifier_cut: Optional[float] = None
     # Turning angle between successive straight_dt_s steps, reported as turn_deg once a
     # track spans straight_min_s (no longer a test: smooth_max_px replaces it).
     straight_dt_s: float = 0.1

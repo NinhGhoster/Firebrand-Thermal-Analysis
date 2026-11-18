@@ -39,7 +39,7 @@ TRACK_COLS = [
     "peak_c", "mean_c", "cooling_c_per_s", "mean_area_px", "area_jump", "edge_grad",
     "exit_t_s", "exit_fit", "exit_span_s",
     "generation_time_s", "area_mm2", "equiv_diameter_mm", "length_mm", "width_mm", "max_length_mm",
-    "n_weak",
+    "n_weak", "fb_prob",
 ]
 POINT_COLS = ["track_id", "firebrand_id", "is_firebrand", "frame", "time_s", "x_px", "y_px", "x_m", "y_m",
               "vx_mps", "vy_mps", "speed_mps", "max_c", "mean_c", "contrast_c", "edge_grad",
@@ -124,7 +124,7 @@ def _write_tables(out_dir: str, res: Dict, fps: float, width: int, height: int, 
         w = csv.writer(fh)
         w.writerow(TRACK_COLS)
         for t in tracks:
-            w.writerow([_fmt(t[c]) for c in TRACK_COLS])
+            w.writerow([_fmt(t.get(c)) for c in TRACK_COLS])
 
     with gzip.open(st.path("track_points.csv.gz"), "wt", newline="") as fh:
         w = csv.writer(fh)
@@ -370,6 +370,14 @@ def retrack(out_dir: str, overrides: Optional[Dict] = None, from_defaults: bool 
                 "weak": r.get("weak") == "1",
             })
     hot_frac = np.load(os.path.join(out_dir, "hot_fraction.npz"))["hot_frac"].astype(np.float32)
+    pz = os.path.join(out_dir, "patches.npz")
+    if os.path.exists(pz):
+        z = np.load(pz)
+        flat = [d for c in sorted(dets_by_frame) for d in dets_by_frame[c]]
+        if len(flat) != len(z["frame"]) or any(int(f) != d["frame"] for f, d in zip(z["frame"], flat)):
+            raise ValueError(f"{out_dir}: patches.npz does not line up with detections.csv.gz")
+        for d, pt in zip(flat, z["patches"]):
+            d["patch"] = pt
     fps = float(summary["fps"])
     s = p.m_per_px if p.m_per_px else metres_per_pixel(
         summary["distance_m"], recording_hfov_deg(summary.get("nc_attrs") or {}, p.lens_hfov_deg), summary["width"])
