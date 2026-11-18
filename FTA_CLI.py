@@ -270,6 +270,15 @@ def cmd_review_score(a) -> int:
     return 0
 
 
+def _nearest(cands, x, y, tol=0.05):
+    """Row of the detection at (x, y) among one frame's (x, y, row); None if none within tol px.
+    (detections.csv stores positions to 0.01 px, patches.npz as float32.)"""
+    best = min(cands, key=lambda c: (c[0] - x) ** 2 + (c[1] - y) ** 2, default=None)
+    if best is None or (best[0] - x) ** 2 + (best[1] - y) ** 2 > tol * tol:
+        return None
+    return best[2]
+
+
 def cmd_train_classifier(a) -> int:
     """Train the learned classifier from labelled review clips and their results tree."""
     import csv as _csv
@@ -300,8 +309,9 @@ def cmd_train_classifier(a) -> int:
                 for r in _csv.DictReader(fh):
                     pts.setdefault(int(r["track_id"]), []).append(r)
             z = np.load(os.path.join(d, "patches.npz"))
-            idx = {(int(f), round(float(x), 1), round(float(y), 1)): k
-                   for k, (f, x, y) in enumerate(zip(z["frame"], z["x"], z["y"]))}
+            idx = {}                                  # frame -> [(x, y, row)]
+            for k, (f, x, y) in enumerate(zip(z["frame"], z["x"], z["y"])):
+                idx.setdefault(int(f), []).append((float(x), float(y), k))
             cache[label] = (tracks, pts, z["patches"], idx)
         return cache[label]
 
@@ -317,7 +327,7 @@ def cmd_train_classifier(a) -> int:
             skipped["fails a basic test"] += 1
             continue
         hot = [r for r in pts[int(c["track_id"])] if r.get("weak") != "1"]
-        ks = [idx.get((int(r["frame"]), round(float(r["x_px"]), 1), round(float(r["y_px"]), 1))) for r in hot]
+        ks = [_nearest(idx.get(int(r["frame"]), ()), float(r["x_px"]), float(r["y_px"])) for r in hot]
         if any(k is None for k in ks):
             skipped["no patch"] += 1
             continue
