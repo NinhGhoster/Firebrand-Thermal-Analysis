@@ -14,13 +14,16 @@ from tests.test_fta_track_e2e import recording  # noqa: E402,F401
 from tests.test_weak_and_patches import _cooling_flight, _run  # noqa: E402
 
 
-def _constant_model(path, prob, cut):
+def _constant_model(path, prob, cut, basic_tests=None):
     """A saved classifier whose probability is `prob` for every track."""
     from sklearn.dummy import DummyClassifier
     n = 100
     y = np.r_[np.ones(int(round(prob * n))), np.zeros(n - int(round(prob * n)))].astype(int)
     m = DummyClassifier(strategy="prior").fit(np.zeros((n, len(learned.FEATURES))), y)
-    learned.Classifier(m, cut, np.zeros(len(learned.FEATURES)), {"test": True}).save(str(path))
+    meta = {"test": True}
+    if basic_tests is not None:
+        meta["basic_tests"] = list(basic_tests)
+    learned.Classifier(m, cut, np.zeros(len(learned.FEATURES)), meta).save(str(path))
     learned._cache.clear()
     return str(path)
 
@@ -68,6 +71,20 @@ class TestInTracking:
         for t in yes["tracks"]:
             if any(x in learned.BASIC_TESTS for x in t["fails"].split(";") if x):
                 assert t["fb_prob"] is None and not t["is_firebrand"]
+
+    def test_each_model_is_used_with_the_basic_tests_it_was_trained_with(self, tmp_path):
+        assert "rough" in learned.load(_constant_model(tmp_path / "old.pkl", 0.3, 0.2)).basic_tests  # v1 style
+        new = learned.load(_constant_model(tmp_path / "new.pkl", 0.3, 0.2, basic_tests=["too_short"]))
+        assert new.basic_tests == ("too_short",)
+        fps = 30.3
+        res = _run(_cooling_flight(fps, 0.35, 0.65, v=(1.5, 3.0)), fps, weak_low_c=250.0, patch_px=15,
+                   classifier=str(tmp_path / "new.pkl"))
+        for t in res["tracks"]:           # only too_short keeps a track from the classifier now
+            assert (t["fb_prob"] is None) == ("too_short" in t["fails"].split(";"))
+
+    def test_shipped_models_load_by_name(self):
+        v1 = learned.load("firebrand_v1")
+        assert "rough" in v1.basic_tests and 0 < v1.cut < 1
 
     def test_it_refuses_to_run_without_patches(self, tmp_path):
         fps = 30.3

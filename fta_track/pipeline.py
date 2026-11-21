@@ -226,7 +226,7 @@ def track_classify(dets_by_frame: Dict[int, List[Dict]], span: Tuple[int, int], 
         reason, fails = classify(f, p, dv)
         f["fb_prob"] = None
         if clf is not None:
-            basic = [x for x in fails.split(";") if x in learned.BASIC_TESTS]
+            basic = [x for x in fails.split(";") if x in clf.basic_tests]
             fails = ";".join(basic)              # the rule's other tests do not decide here
             if basic:
                 reason = basic[0]

@@ -298,6 +298,7 @@ def cmd_train_classifier(a) -> int:
                 if j.get("who") == a.labeller and j.get("labels"):
                     verdict.update({l["id"]: l["verdict"] for l in j["labels"]})
     clips = json.load(open(a.manifest))["clips"]
+    basic_tests = tuple(a.basic_tests.split(",")) if a.basic_tests else learned.BASIC_TESTS
     cache = {}
 
     def rec(label):
@@ -323,7 +324,7 @@ def cmd_train_classifier(a) -> int:
             continue
         tracks, pts, P, idx = rec(c["label"])
         t = tracks[int(c["track_id"])]
-        if any(x in learned.BASIC_TESTS for x in (t.get("fails") or "").split(";")):
+        if any(x in basic_tests for x in (t.get("fails") or "").split(";")):
             skipped["fails a basic test"] += 1
             continue
         hot = [r for r in pts[int(c["track_id"])] if r.get("weak") != "1"]
@@ -339,15 +340,16 @@ def cmd_train_classifier(a) -> int:
     print(f"training on {len(y)} tracks ({y.sum()} firebrands) from {len(set(groups))} recordings; skipped {skipped}")
     clf, rep = learned.train(X, y, groups, a.target, meta={"results": a.results, "manifest": a.manifest,
                                                             "labels": a.labels, "labeller": a.labeller,
-                                                            "n_train": int(len(y))})
+                                                            "n_train": int(len(y))},
+                             basic_tests=basic_tests)
     print(f"leaving one recording out: keeps {rep['kept']}, firebrands {rep['firebrands_kept']}/{rep['firebrands']} "
           f"(recall {rep['recall']}), precision {rep['precision']}; final cut-off {clf.cut:.3f}")
-    clf.save(a.out)
+    clf.save(a.out, X)
     with open(os.path.splitext(a.out)[0] + "_training.csv", "w", newline="") as fh:
         w = _csv.writer(fh)
         w.writerow(["clip_id", "recording", "firebrand"] + learned.FEATURES)
         for i, g, yy, row in zip(ids, groups, y, X):
-            w.writerow([i, g, int(yy)] + [f"{v:.6g}" for v in row])
+            w.writerow([i, g, int(yy)] + [repr(float(v)) for v in row])
     print(f"-> {a.out}")
     return 0
 
@@ -431,6 +433,8 @@ def main(argv=None) -> int:
                     help="labels: labeller jobs JSON or {clip id: verdict}; repeatable")
     tc.add_argument("--labeller", default="A", help="whose verdicts to use from labeller jobs JSON")
     tc.add_argument("--target", type=float, default=0.9, help="precision the cut-off is chosen for")
+    tc.add_argument("--basic-tests", default="",
+                    help="comma-separated tests the classifier never overrides (default: fta_track.learned.BASIC_TESTS)")
     tc.add_argument("--out", required=True, help="model file (.pkl); a _training.csv is written beside it")
     tc.set_defaults(func=cmd_train_classifier)
 

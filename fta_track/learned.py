@@ -22,6 +22,7 @@ sees what it was trained on.
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import pickle
@@ -35,8 +36,13 @@ BASE = ["peak_c", "crowding", "mean_speed_mps", "smooth_px", "max_contrast_c", "
 PATCH = ["prof1", "prof2", "prof3", "ring_std", "hot_share", "ring_bg", "shape_ncc"]
 FEATURES = BASE + PATCH
 # Tests the classifier does not override: a track failing any of them is never a firebrand.
-BASIC_TESTS = ("too_short", "ignition_flash", "rough", "low_contrast", "too_little_displacement")
-BUILTIN = os.path.join(os.path.dirname(__file__), "models", "firebrand_v1.pkl")
+# A model records the set it was trained with (meta["basic_tests"]) and is always used with it;
+# this is the default for training. firebrand_v1 kept "rough" among them; firebrand_v2 leaves
+# the path's smoothness to the classifier, which found more firebrands at the same precision.
+BASIC_TESTS = ("too_short", "ignition_flash", "low_contrast", "too_little_displacement")
+V1_BASIC_TESTS = ("too_short", "ignition_flash", "rough", "low_contrast", "too_little_displacement")
+MODELS = os.path.join(os.path.dirname(__file__), "models")
+BUILTIN = os.path.join(MODELS, "firebrand_v2.pkl")
 
 _size = 15
 _yy, _xx = np.mgrid[0:_size, 0:_size]
@@ -87,28 +93,66 @@ class Classifier:
 
     def __init__(self, model, cut: float, medians: np.ndarray, meta: Dict):
         self.model, self.cut, self.medians, self.meta = model, float(cut), np.asarray(medians, float), meta
+        self.basic_tests = tuple(meta.get("basic_tests") or V1_BASIC_TESTS)   # v1 predates the field
 
     def prob(self, X: np.ndarray) -> np.ndarray:
         X = np.atleast_2d(np.asarray(X, dtype=float))
         X = np.where(np.isnan(X), self.medians, X)
         return self.model.predict_proba(X)[:, 1]
 
-    def save(self, path: str) -> None:
+    def save(self, path: str, X_ref: Optional[np.ndarray] = None) -> None:
+        """<name>.pkl, plus <name>.json: everything but the fitted trees, and the probabilities of the
+        first training rows. With the training table (<name>_training.csv, same row order) the
+        json lets load() rebuild the model where the pickle will not load (another numpy)."""
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         with open(path, "wb") as fh:
             pickle.dump({"model": self.model, "cut": self.cut, "medians": self.medians.tolist(),
                          "meta": self.meta, "features": FEATURES}, fh)
+        ref = [] if X_ref is None else [float(v) for v in self.prob(np.asarray(X_ref, float)[:_N_REF])]
+        with open(os.path.splitext(path)[0] + ".json", "w") as fh:
+            json.dump({"cut": self.cut, "medians": self.medians.tolist(), "meta": self.meta,
+                       "features": FEATURES, "reference_probs": ref}, fh, indent=1, default=str)
 
 
 _cache: Dict[str, Classifier] = {}
+_N_REF = 25
+
+
+def _rebuild(path: str) -> Classifier:
+    """Refit a model from its json and training table, and check it against the stored probabilities."""
+    import csv
+
+    base = os.path.splitext(path)[0]
+    with open(base + ".json") as fh:
+        d = json.load(fh)
+    with open(base + "_training.csv", newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    X = np.array([[float(r[k]) if r[k] not in ("", "nan") else np.nan for k in FEATURES] for r in rows])
+    y = np.array([int(r["firebrand"]) for r in rows])
+    med = np.array(d["medians"], float)
+    clf = Classifier(make_model().fit(np.where(np.isnan(X), med, X), y), d["cut"], med, d["meta"])
+    ref = np.array(d.get("reference_probs") or [], float)
+    if ref.size:
+        got = clf.prob(X[:ref.size])
+        if float(np.max(np.abs(got - ref))) > 0.02:
+            raise ValueError(f"{path}: rebuilt model differs from the trained one "
+                             f"(max probability difference {np.max(np.abs(got - ref)):.3f}); retrain it")
+    return clf
 
 
 def load(name: str) -> Classifier:
-    """'builtin' (the model shipped with fta_track) or a path to a saved model."""
-    path = BUILTIN if name == "builtin" else name
+    """'builtin' (the newest shipped model), a shipped model's name (e.g. 'firebrand_v1'), or a path."""
+    shipped = os.path.join(MODELS, f"{name}.pkl")
+    path = BUILTIN if name == "builtin" else (shipped if os.path.exists(shipped) else name)
     if path not in _cache:
-        with open(path, "rb") as fh:
-            d = pickle.load(fh)
+        try:
+            with open(path, "rb") as fh:
+                d = pickle.load(fh)
+        except Exception:                         # e.g. pickled under another numpy
+            if not os.path.exists(os.path.splitext(path)[0] + ".json"):
+                raise
+            _cache[path] = _rebuild(path)
+            return _cache[path]
         if d.get("features") != FEATURES:
             raise ValueError(f"{path} was trained on other features; retrain it (FTA_CLI.py train-classifier)")
         _cache[path] = Classifier(d["model"], d["cut"], np.array(d["medians"], float), d["meta"])
@@ -144,7 +188,7 @@ def _oof(X: np.ndarray, y: np.ndarray, groups: np.ndarray) -> np.ndarray:
 
 
 def train(X: np.ndarray, y: np.ndarray, groups: np.ndarray, target: float = 0.9,
-          meta: Optional[Dict] = None) -> tuple:
+          meta: Optional[Dict] = None, basic_tests: Sequence[str] = BASIC_TESTS) -> tuple:
     """Fit on everything; return (Classifier, report).
 
     The report scores the procedure leaving one recording out: for each recording, model and
@@ -173,5 +217,6 @@ def train(X: np.ndarray, y: np.ndarray, groups: np.ndarray, target: float = 0.9,
     cut = _cutoff(_oof(X, y, groups), y, target)
     med = np.nan_to_num(np.nanmedian(X, axis=0))
     model = make_model().fit(np.where(np.isnan(X), med, X), y)
-    m = dict(meta or {}, sklearn_version=sklearn.__version__, leave_one_recording_out=report)
+    m = dict(meta or {}, sklearn_version=sklearn.__version__, leave_one_recording_out=report,
+             basic_tests=list(basic_tests))
     return Classifier(model, cut, med, m), report
