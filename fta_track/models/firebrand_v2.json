@@ -1,0 +1,205 @@
+{
+ "cut": 0.6141728828947375,
+ "medians": [
+  382.45,
+  0.2308,
+  0.28859999999999997,
+  5.5501000000000005,
+  260.635,
+  47.86,
+  7.0,
+  13.3417,
+  0.1345,
+  0.7261,
+  16.0,
+  -0.0253,
+  6.511150000000001,
+  0.00405,
+  0.3121,
+  329.365,
+  3.0,
+  0.6715544015169144,
+  0.39649955928325653,
+  0.25372886657714844,
+  39.80102729797363,
+  0.057777777777777775,
+  167.25,
+  0.7632677115321349
+ ],
+ "meta": {
+  "results": "/data/gpfs/projects/punim1990/haninhn/firebrand_tracking/results_pilot4_perm",
+  "manifest": "/data/gpfs/projects/punim1990/haninhn/firebrand_tracking/review/pilot4/merged/manifest.json",
+  "labels": [
+   "/data/gpfs/projects/punim1990/haninhn/firebrand_tracking/review/pilot4/claude_labels.json",
+   "/data/gpfs/projects/punim1990/haninhn/firebrand_tracking/review/pilot4/inherited.json"
+  ],
+  "labeller": "A",
+  "n_train": 896,
+  "sklearn_version": "1.9.1",
+  "leave_one_recording_out": {
+   "target_precision": 0.9,
+   "candidates": 896,
+   "firebrands": 199,
+   "kept": 179,
+   "firebrands_kept": 164,
+   "recall": 0.824,
+   "precision": 0.916,
+   "per_recording": {
+    "branchlet/Acacia/150kW/Twigs/51": {
+     "kept": 3,
+     "firebrands_kept": 3,
+     "firebrands": 3
+    },
+    "branchlet/Eucalyptus/150kW/BL_leafy/1": {
+     "kept": 41,
+     "firebrands_kept": 32,
+     "firebrands": 48
+    },
+    "branchlet/Eucalyptus/50kW/Twigs/C1/Rec-0082": {
+     "kept": 1,
+     "firebrands_kept": 1,
+     "firebrands": 1
+    },
+    "branchlet/Pine/150kW/Twigs/41": {
+     "kept": 2,
+     "firebrands_kept": 2,
+     "firebrands": 3
+    },
+    "candlebark/E_rubida/100kW/cylindrical/60cm/cylindrical1_100kW_60cm": {
+     "kept": 15,
+     "firebrands_kept": 13,
+     "firebrands": 16
+    },
+    "candlebark/E_rubida/100kW/flat/20cm/flat1_100kW_20cm": {
+     "kept": 2,
+     "firebrands_kept": 2,
+     "firebrands": 2
+    },
+    "candlebark/E_rubida/150kW/cylindrical/60cm/cylindrical1_150kW_60cm": {
+     "kept": 8,
+     "firebrands_kept": 8,
+     "firebrands": 9
+    },
+    "candlebark/E_rubida/150kW/flat/20cm/flat1_150kW_20cm": {
+     "kept": 1,
+     "firebrands_kept": 1,
+     "firebrands": 1
+    },
+    "candlebark/E_rubida/50kW/cylindrical/60cm/cylindrical2_50kW_60cm": {
+     "kept": 7,
+     "firebrands_kept": 5,
+     "firebrands": 6
+    },
+    "candlebark/E_rubida/50kW/flat/40cm/flat1_50kW_40cm": {
+     "kept": 13,
+     "firebrands_kept": 11,
+     "firebrands": 11
+    },
+    "fibrous_bark/E_obliqua/Extreme/100kW/S32": {
+     "kept": 8,
+     "firebrands_kept": 8,
+     "firebrands": 10
+    },
+    "fibrous_bark/E_obliqua/Extreme/150kW/S1": {
+     "kept": 18,
+     "firebrands_kept": 18,
+     "firebrands": 19
+    },
+    "fibrous_bark/E_obliqua/High/150kW/S19": {
+     "kept": 15,
+     "firebrands_kept": 15,
+     "firebrands": 19
+    },
+    "fibrous_bark/E_obliqua/Moderate/150kW/S1": {
+     "kept": 7,
+     "firebrands_kept": 7,
+     "firebrands": 7
+    },
+    "fibrous_bark/E_obliqua/Very_high/100kW/S26": {
+     "kept": 21,
+     "firebrands_kept": 21,
+     "firebrands": 26
+    },
+    "fibrous_bark/E_obliqua/Very_high/150kW/S19": {
+     "kept": 10,
+     "firebrands_kept": 10,
+     "firebrands": 11
+    },
+    "fibrous_bark/E_radiata/High/150kW/S1": {
+     "kept": 0,
+     "firebrands_kept": 0,
+     "firebrands": 0
+    },
+    "fibrous_bark/E_radiata/High/50kW/S9": {
+     "kept": 3,
+     "firebrands_kept": 3,
+     "firebrands": 3
+    },
+    "preliminary_branchlet_test/23": {
+     "kept": 4,
+     "firebrands_kept": 4,
+     "firebrands": 4
+    }
+   }
+  },
+  "basic_tests": [
+   "too_short",
+   "ignition_flash",
+   "low_contrast",
+   "too_little_displacement"
+  ]
+ },
+ "features": [
+  "peak_c",
+  "crowding",
+  "mean_speed_mps",
+  "smooth_px",
+  "max_contrast_c",
+  "edge_grad",
+  "mean_area_px",
+  "exit_zone_dist_px",
+  "displacement_m",
+  "duration_s",
+  "n_det",
+  "vert_accel_mps2",
+  "median_step_px",
+  "exit_hot_frac",
+  "area_jump",
+  "median_peak_c",
+  "n_weak",
+  "prof1",
+  "prof2",
+  "prof3",
+  "ring_std",
+  "hot_share",
+  "ring_bg",
+  "shape_ncc"
+ ],
+ "reference_probs": [
+  0.9506218810410562,
+  0.0010279641970821762,
+  0.9869407057468559,
+  0.0006783596624086971,
+  0.0010279641970821762,
+  0.003987323321998316,
+  0.004582968885259727,
+  0.038423780405936095,
+  0.0028573316368636715,
+  0.0007972110864677025,
+  0.004222495169314547,
+  0.00043411712200343023,
+  0.08857962372433746,
+  0.003297574128274681,
+  0.0366026462183604,
+  0.002278778438331528,
+  0.0022931220730509566,
+  0.0029213433796202812,
+  0.0021326495180866534,
+  0.0022613676365939236,
+  0.956664714561171,
+  0.5469259879239828,
+  0.9988165308499023,
+  0.0018321704698133728,
+  0.0033327076948201605
+ ]
+}

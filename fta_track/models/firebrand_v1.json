@@ -1,0 +1,199 @@
+{
+ "cut": 0.6755094818502043,
+ "medians": [
+  383.21000000000004,
+  0.2308,
+  0.27849999999999997,
+  5.258900000000001,
+  258.38,
+  48.0,
+  6.8333,
+  13.3417,
+  0.13395,
+  0.78705,
+  18.0,
+  -0.025050000000000003,
+  5.9319,
+  0.0041,
+  0.29045,
+  328.765,
+  4.0,
+  0.669679582118988,
+  0.39343276619911194,
+  0.2506859712302685,
+  39.91896629333496,
+  0.057777777777777775,
+  167.0,
+  0.7667587566296146
+ ],
+ "meta": {
+  "results": "results_pilot4_perm",
+  "manifest": "review/pilot4/merged/manifest.json",
+  "labels": [
+   "review/pilot4/claude_labels.json",
+   "review/pilot4/inherited.json"
+  ],
+  "labeller": "A",
+  "n_train": 842,
+  "sklearn_version": "1.9.1",
+  "leave_one_recording_out": {
+   "target_precision": 0.9,
+   "candidates": 842,
+   "firebrands": 184,
+   "kept": 167,
+   "firebrands_kept": 152,
+   "recall": 0.826,
+   "precision": 0.91,
+   "per_recording": {
+    "branchlet/Acacia/150kW/Twigs/51": {
+     "kept": 2,
+     "firebrands_kept": 2,
+     "firebrands": 3
+    },
+    "branchlet/Eucalyptus/150kW/BL_leafy/1": {
+     "kept": 43,
+     "firebrands_kept": 34,
+     "firebrands": 48
+    },
+    "branchlet/Eucalyptus/50kW/Twigs/C1/Rec-0082": {
+     "kept": 1,
+     "firebrands_kept": 1,
+     "firebrands": 1
+    },
+    "branchlet/Pine/150kW/Twigs/41": {
+     "kept": 2,
+     "firebrands_kept": 2,
+     "firebrands": 3
+    },
+    "candlebark/E_rubida/100kW/cylindrical/60cm/cylindrical1_100kW_60cm": {
+     "kept": 16,
+     "firebrands_kept": 14,
+     "firebrands": 15
+    },
+    "candlebark/E_rubida/100kW/flat/20cm/flat1_100kW_20cm": {
+     "kept": 2,
+     "firebrands_kept": 2,
+     "firebrands": 2
+    },
+    "candlebark/E_rubida/150kW/cylindrical/60cm/cylindrical1_150kW_60cm": {
+     "kept": 8,
+     "firebrands_kept": 8,
+     "firebrands": 9
+    },
+    "candlebark/E_rubida/150kW/flat/20cm/flat1_150kW_20cm": {
+     "kept": 1,
+     "firebrands_kept": 1,
+     "firebrands": 1
+    },
+    "candlebark/E_rubida/50kW/cylindrical/60cm/cylindrical2_50kW_60cm": {
+     "kept": 6,
+     "firebrands_kept": 5,
+     "firebrands": 5
+    },
+    "candlebark/E_rubida/50kW/flat/40cm/flat1_50kW_40cm": {
+     "kept": 13,
+     "firebrands_kept": 11,
+     "firebrands": 11
+    },
+    "fibrous_bark/E_obliqua/Extreme/100kW/S32": {
+     "kept": 7,
+     "firebrands_kept": 7,
+     "firebrands": 9
+    },
+    "fibrous_bark/E_obliqua/Extreme/150kW/S1": {
+     "kept": 15,
+     "firebrands_kept": 15,
+     "firebrands": 17
+    },
+    "fibrous_bark/E_obliqua/High/150kW/S19": {
+     "kept": 11,
+     "firebrands_kept": 11,
+     "firebrands": 13
+    },
+    "fibrous_bark/E_obliqua/Moderate/150kW/S1": {
+     "kept": 6,
+     "firebrands_kept": 6,
+     "firebrands": 6
+    },
+    "fibrous_bark/E_obliqua/Very_high/100kW/S26": {
+     "kept": 18,
+     "firebrands_kept": 18,
+     "firebrands": 24
+    },
+    "fibrous_bark/E_obliqua/Very_high/150kW/S19": {
+     "kept": 10,
+     "firebrands_kept": 10,
+     "firebrands": 11
+    },
+    "fibrous_bark/E_radiata/High/150kW/S1": {
+     "kept": 1,
+     "firebrands_kept": 0,
+     "firebrands": 0
+    },
+    "fibrous_bark/E_radiata/High/50kW/S9": {
+     "kept": 3,
+     "firebrands_kept": 3,
+     "firebrands": 3
+    },
+    "preliminary_branchlet_test/23": {
+     "kept": 2,
+     "firebrands_kept": 2,
+     "firebrands": 3
+    }
+   }
+  }
+ },
+ "features": [
+  "peak_c",
+  "crowding",
+  "mean_speed_mps",
+  "smooth_px",
+  "max_contrast_c",
+  "edge_grad",
+  "mean_area_px",
+  "exit_zone_dist_px",
+  "displacement_m",
+  "duration_s",
+  "n_det",
+  "vert_accel_mps2",
+  "median_step_px",
+  "exit_hot_frac",
+  "area_jump",
+  "median_peak_c",
+  "n_weak",
+  "prof1",
+  "prof2",
+  "prof3",
+  "ring_std",
+  "hot_share",
+  "ring_bg",
+  "shape_ncc"
+ ],
+ "reference_probs": [
+  0.9438611755973098,
+  0.0009795141141442638,
+  0.9820635096534047,
+  0.0007698391840852684,
+  0.0010881520959347287,
+  0.0022917314654721473,
+  0.004291135807891354,
+  0.03443176603189096,
+  0.002915389613831898,
+  0.0011295992332600146,
+  0.004010462562479994,
+  0.00028200245073495067,
+  0.1098900572124326,
+  0.0312465016139414,
+  0.0021619260933335785,
+  0.001587374495650543,
+  0.0032592640639795773,
+  0.0026472083925835315,
+  0.003958245937702966,
+  0.6130415187922225,
+  0.9992323767143841,
+  0.0009469822511676545,
+  0.0056929786571733865,
+  0.000466035072156038,
+  0.009769492889466354
+ ]
+}
